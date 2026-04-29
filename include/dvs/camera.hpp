@@ -6,6 +6,6 @@
 
 namespace dvs {
 
-std::vector<Ray> generate_camera_rays(const FrameData& frame, const SceneBundle& scene);
+std::vector<Ray<Vec3>> generate_camera_rays(const FrameData<Vec3, Mat3>& frame, const SceneBundle<Vec3, Uint3, Mat3>& scene);
 
 }  // namespace dvs

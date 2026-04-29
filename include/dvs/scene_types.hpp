@@ -2,74 +2,75 @@
 
 #include <cstdint>
 #include <vector>
-
 #include "dvs/math_types.hpp"
 
 namespace dvs {
 
-struct UInt3 {
-    std::uint32_t x = 0;
-    std::uint32_t y = 0;
-    std::uint32_t z = 0;
-};
-
+template<typename float3, typename uint3>
 struct MeshData {
-    std::vector<Vec3> vertices;
-    std::vector<Vec3> normals;
-    std::vector<UInt3> indices;
+    std::vector<float3> vertices;
+    std::vector<float3> normals;
+    std::vector<uint3> indices;
 };
 
+template<typename float3>
 struct Ray {
-    Vec3 origin;
-    Vec3 direction;
+    float3 origin;
+    float3 direction;
 };
 
+template <typename float3>
 struct Triangle {
-    Vec3 v0;
-    Vec3 v1;
-    Vec3 v2;
-    Vec3 n0;
-    Vec3 n1;
-    Vec3 n2;
+    float3 v0;
+    float3 v1;
+    float3 v2;
+    float3 n0;
+    float3 n1;
+    float3 n2;
 };
 
+template <typename float3>
 struct AABB {
-    Vec3 min;
-    Vec3 max;
+    float3 min;
+    float3 max;
 };
 
+template <typename float3>
 struct BVHNode {
-    AABB box;
+    AABB<float3> box;
     int left = -1;
     int right = -1;
     int start = 0;
     int count = 0;
 };
 
+template <typename float3>
 struct Intersection {
     int hit = 0;
     float t = -1.0f;
     int triangle_index = -1;
-    Vec3 point;
-    Vec3 normal;
+    float3 point;
+    float3 normal;
 };
 
+template <typename float3, typename mat3>
 struct FrameData {
     float timestamp = 0.0f;
-    Vec3 camera_origin;
-    Mat4 camera_world;
-    Vec3 light_dir;
+    float3 camera_origin;
+    mat3 camera_world;
+    float3 light_dir;
     float light_intensity = 0.0f;
 };
 
+template <typename float3, typename uint3, typename mat3>
 struct SceneBundle {
     int width = 0;
     int height = 0;
     float fx, fy, cx, cy;
     float fps = 0.0f;
-    std::vector<FrameData> frames;
-    std::vector<BVHNode> bvh_nodes;
-    std::vector<Triangle> bvh_triangles;
+    std::vector<FrameData<float3, mat3>> frames;
+    std::vector<BVHNode<float3>> bvh_nodes;
+    std::vector<Triangle<float3>> bvh_triangles;
 };
 
 }  // namespace dvs

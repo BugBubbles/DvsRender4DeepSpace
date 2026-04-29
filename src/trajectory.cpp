@@ -33,14 +33,14 @@ float solve_bezier_param_for_x(float x_target, const BezierKeyframe& k0, const B
         return 0.0f;
     }
 
-    float u = clampf((x_target - x0) / span, 0.0f, 1.0f);
+    float u = std::clamp((x_target - x0) / span, 0.0f, 1.0f);
     for (int i = 0; i < 8; ++i) {
         const float fx = bezier_point(x0, x1, x2, x3, u) - x_target;
         const float dfx = bezier_derivative(x0, x1, x2, x3, u);
         if (fabsf(dfx) < 1e-6f) {
             break;
         }
-        const float next_u = clampf(u - fx / dfx, 0.0f, 1.0f);
+        const float next_u = std::clamp(u - fx / dfx, 0.0f, 1.0f);
         if (fabsf(next_u - u) < 1e-6f) {
             u = next_u;
             return u;

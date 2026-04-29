@@ -10,7 +10,10 @@
 #include "dvs/progress.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_data.hpp"
+#include "bvh/build.h"
+#include "dvs/scene_types.hpp"
 
+#define DEBUG_INDEX 131328
 namespace {
 
 struct Options {
@@ -116,14 +119,19 @@ int main(int argc, char** argv) {
         }
 
         const Options opts = parse_args(argc, argv);
-        dvs::SceneBundle scene;
+        dvs::SceneBundle<dvs::Vec3, dvs::Uint3, dvs::Mat3> scene;
         std::string error_message;
         if (!dvs::load_scene_bundle(opts.scene_dir, &scene, &error_message)) {
             throw std::runtime_error("failed to load scene bundle: " + error_message);
         }
         std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
+        dvs::BVHBuildParams params; // 可使用默认参数
+        std::vector<dvs::Triangle<dvs::Vec3>> bvh_ordered_triangles;
 
-        dvs::GpuRaycaster raycaster(scene.bvh_nodes, scene.bvh_triangles);
+        dvs::BVHBuilder::build(scene.bvh_triangles, params, scene.bvh_nodes,
+                               bvh_ordered_triangles);
+
+        dvs::GpuRaycaster raycaster(scene.bvh_nodes, bvh_ordered_triangles);
         dvs::DVSBase dvs_sensor(scene.height, scene.width, opts.threshold_pos, opts.threshold_neg);
 
         std::ofstream events_out(opts.output_path);
@@ -133,26 +141,27 @@ int main(int argc, char** argv) {
 
         std::size_t total_events = 0;
         dvs::ProgressBar bar(scene.frames.size());
+        std::vector<dvs::Intersection<dvs::Vec3>> hits;
         for (std::size_t frame_idx = 0; frame_idx < scene.frames.size(); ++frame_idx) {
-            const dvs::FrameData& frame = scene.frames[frame_idx];
-            const std::vector<dvs::Ray> rays =
+            const dvs::FrameData<dvs::Vec3, dvs::Mat3>& frame = scene.frames[frame_idx];
+            const std::vector<dvs::Ray<dvs::Vec3>> rays =
                 dvs::generate_camera_rays(frame, scene);
-            std::cout << rays[0].origin.x << " " << rays[0].origin.y << " " << rays[0].origin.z << " "
-                      << rays[0].direction.x << " " << rays[0].direction.y << " "
-                      << rays[0].direction.z << "\n";
-            const std::vector<dvs::Intersection> hits = raycaster.intersect(rays);
+            std::cout << "simulator_main.cpp " << rays[DEBUG_INDEX].origin.transpose() << " "
+                      << rays[DEBUG_INDEX].direction.transpose() << "\n";
+            raycaster.intersect(rays, hits);
 
             std::vector<float> log_intensity(static_cast<std::size_t>(scene.width * scene.height), 0.0f);
-            const dvs::Vec3 light_dir = dvs::normalize(frame.light_dir);
+            const dvs::Vec3 light_dir = frame.light_dir.normalized();
+
             for (std::size_t i = 0; i < hits.size(); ++i) {
-              std::cout << hits[i].hit << " " << hits[i].t << " "
-                        << hits[i].normal.x << " " << hits[i].normal.y << " "
-                        << hits[i].normal.z << "\n";
-              return 0;
+               if (i != DEBUG_INDEX) {
+                    continue;
+               }
+                std::cout << "Hit " << i << ": hit=" << hits[i].hit << " normal=(" << hits[i].normal.transpose() << std::endl;
                 if (!hits[i].hit) {
                     continue;
                 }
-                const dvs::Vec3 view_dir = dvs::normalize(-rays[i].direction);
+                const dvs::Vec3 view_dir = -rays[i].direction.normalized();
                 const float brdf = dvs::hapke_brdf(hits[i].normal, light_dir, view_dir, opts.hapke);
                 log_intensity[i] =
                     dvs::log_intensity_from_brdf(brdf, frame.light_intensity);
