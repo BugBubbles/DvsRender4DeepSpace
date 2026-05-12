@@ -4,33 +4,75 @@
 #include <vector>
 
 #include "dvs/scene_types.hpp"
+#include <cuda_runtime.h>
+#include <thrust/device_ptr.h>
 
-#define CUDA_CHECK(expr)                                                                       \
-    do {                                                                                       \
-        const cudaError_t err__ = (expr);                                                      \
-        if (err__ != cudaSuccess) {                                                            \
-            throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err__)); \
-        }                                                                                      \
-    } while (0)
-    
+#define CUDA_CHECK(expr)                                                       \
+  do {                                                                         \
+    const cudaError_t err__ = (expr);                                          \
+    if (err__ != cudaSuccess) {                                                \
+      throw std::runtime_error(std::string("CUDA error: ") +                   \
+                               cudaGetErrorString(err__));                     \
+    }                                                                          \
+  } while (0)
+
 namespace dvs {
 
 class GpuRaycaster {
 public:
-    GpuRaycaster(const std::vector<BVHNode<Vec3>>& nodes, const std::vector<Triangle<Vec3>>& triangles);
-    ~GpuRaycaster();
-
-    GpuRaycaster(GpuRaycaster&&) noexcept;
-    GpuRaycaster& operator=(GpuRaycaster&&) noexcept;
-
-    GpuRaycaster(const GpuRaycaster&) = delete;
-    GpuRaycaster& operator=(const GpuRaycaster&) = delete;
-
-    void intersect(const std::vector<Ray<Vec3>>& rays, std::vector<Intersection<Vec3>>& hits) const;
+  GpuRaycaster(const std::vector<BVHNode<Vec3>> &nodes,
+               const std::vector<Triangle<Vec3>> &triangles);
+  ~GpuRaycaster() {
+    if (d_nodes_ != nullptr) {
+      cudaFree(d_nodes_);
+      d_nodes_ = nullptr;
+    }
+    if (d_tris_ != nullptr) {
+      cudaFree(d_tris_);
+      d_tris_ = nullptr;
+    }
+    if (d_rays_ != nullptr) {
+      cudaFree(d_rays_);
+      d_rays_ = nullptr;
+    }
+    if (d_hits_ != nullptr) {
+      cudaFree(d_hits_);
+      d_hits_ = nullptr;
+    }
+    node_count_ = 0;
+    tri_count_ = 0;
+    root_index_ = 0;
+    ray_capacity_ = 0;
+  };
+  void ensure_ray_capacity(std::size_t ray_count) const {
+    if (ray_capacity_ >= ray_count) {
+      return;
+    }
+    if (d_rays_ != nullptr) {
+      CUDA_CHECK(cudaFree(d_rays_));
+      d_rays_ = nullptr;
+    }
+    if (d_hits_ != nullptr) {
+      CUDA_CHECK(cudaFree(d_hits_));
+      d_hits_ = nullptr;
+    }
+    CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(Ray<float3>) * ray_count));
+    CUDA_CHECK(cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count));
+    ray_capacity_ = ray_count;
+  }
+  void intersect(const SceneBundle<Vec3, Uint3, Mat3> &scene, int frame_idx,
+                 std::vector<Intersection<Vec3>> &hits);
+  void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+  int node_count_ = 0;
+  int tri_count_ = 0;
+  int root_index_ = 0;
+  BVHNode<float3> *d_nodes_ = nullptr;
+  Triangle<float3> *d_tris_ = nullptr;
+  mutable Ray<float3> *d_rays_ = nullptr;
+  mutable Intersection<float3> *d_hits_ = nullptr;
+  mutable std::size_t ray_capacity_ = 0;
 };
 
-}  // namespace dvs
+} // namespace dvs

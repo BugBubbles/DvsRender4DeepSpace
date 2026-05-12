@@ -3,7 +3,12 @@
 #include <cstdint>
 #include <vector>
 #include "dvs/math_types.hpp"
-
+#ifdef __CUDACC__
+#define DVS_ALIGN(N) __align__(N)
+#else
+#define DVS_ALIGN(N) alignas(N)
+#endif
+#define DEBUG_INDEX 131328
 namespace dvs {
 
 template<typename float3, typename uint3>
@@ -14,13 +19,13 @@ struct MeshData {
 };
 
 template<typename float3>
-struct Ray {
+struct DVS_ALIGN(4) Ray {
     float3 origin;
     float3 direction;
 };
 
 template <typename float3>
-struct Triangle {
+struct DVS_ALIGN(4) Triangle {
     float3 v0;
     float3 v1;
     float3 v2;

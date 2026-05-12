@@ -7,7 +7,6 @@
 
 #ifdef __CUDACC__
 #include <cuda_runtime.h>
-#include "dvs/helper_math.h"
 #define DVS_HD __host__ __device__
 #else
 #define DVS_HD

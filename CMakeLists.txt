@@ -25,10 +25,7 @@ target_include_directories(dvs_core
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${EIGEN3_INCLUDE_DIR}
 )
-target_compile_options(dvs_core
-    PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>
-)
+
 target_link_libraries(dvs_core
     PUBLIC
         OpenMP::OpenMP_CXX
@@ -43,18 +40,11 @@ target_include_directories(dvs_cuda
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-set_target_properties(dvs_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION ON
-    POSITION_INDEPENDENT_CODE ON
-)
+
 target_link_libraries(dvs_cuda
     PUBLIC
         CUDA::cudart
         Eigen3::Eigen
-)
-target_compile_options(dvs_cuda
-    PRIVATE
-        $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
 )
 
 add_executable(dvs_simulator
@@ -65,5 +55,3 @@ target_link_libraries(dvs_simulator
         dvs_core
         dvs_cuda
 )
-
-install(TARGETS dvs_simulator RUNTIME DESTINATION bin)
