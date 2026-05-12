@@ -1,6 +1,7 @@
 #pragma once
 
-#include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "dvs/scene_types.hpp"
@@ -21,7 +22,8 @@ namespace dvs {
 class GpuRaycaster {
 public:
   GpuRaycaster(const std::vector<BVHNode<Vec3>> &nodes,
-               const std::vector<Triangle<Vec3>> &triangles);
+               const std::vector<Triangle<Vec3>> &triangles,
+               const int root_index);
   ~GpuRaycaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);

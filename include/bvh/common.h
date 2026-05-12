@@ -6,6 +6,7 @@
 
 namespace dvs {
 
+
 // 扩展 AABB 的辅助函数
 inline AABB<Vec3> aabb_empty() {
     AABB<Vec3> box;
@@ -14,12 +15,22 @@ inline AABB<Vec3> aabb_empty() {
     return box;
 }
 
+inline bool aabb_is_empty(const AABB<Vec3>& box) {
+    return box.min.x() > box.max.x() ||
+           box.min.y() > box.max.y() ||
+           box.min.z() > box.max.z();
+}
+
 inline void aabb_grow(AABB<Eigen::Vector3f>& box, const Eigen::Vector3f& p) {
     box.min = box.min.cwiseMin(p);
     box.max = box.max.cwiseMax(p);
 }
 
 inline void aabb_grow(AABB<Vec3>& box, const AABB<Vec3>& other) {
+    if (aabb_is_empty(other)) {
+        return;
+    }
+
     aabb_grow(box, other.min);
     aabb_grow(box, other.max);
 }
@@ -40,6 +51,7 @@ inline float aabb_safe_area(const AABB<Vec3>& box) {
 // 在构建过程中使用的三角形引用
 struct BVHReference {
     AABB<Vec3> bounds;
+    Vec3 center;
     int tri_index;   // 原始三角形数组的索引
 };
 

@@ -13,11 +13,9 @@ find_package(OpenMP REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 file(GLOB BVH_SOURCES "src/bvh/*.cpp")
+file(GLOB BASIC_SOURCES "src/*.cpp")
 add_library(dvs_core STATIC
-    src/dvs_base.cpp
-    src/camera.cpp
-    src/scene_data.cpp
-    src/trajectory.cpp
+    ${BASIC_SOURCES}
     ${BVH_SOURCES}
 )
 target_include_directories(dvs_core
