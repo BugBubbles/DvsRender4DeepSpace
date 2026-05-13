@@ -19,6 +19,19 @@
 
 namespace dvs {
 
+__global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
+                                       int root_index,
+                                       const Triangle<float3> *triangles,
+                                       const Ray<float3> *rays, int ray_count,
+                                       Intersection<float3> *out_hits);
+
+__global__ void view_direction_batch_kernel(const int width, const int height,
+                                            const float fx, const float fy,
+                                            const float cx, const float cy,
+                                            const float *camera_world,
+                                            const float3 origin,
+                                            Ray<float3> *out_rays);
+
 class GpuRaycaster {
 public:
   GpuRaycaster(const std::vector<BVHNode<Vec3>> &nodes,
