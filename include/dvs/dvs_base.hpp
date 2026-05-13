@@ -15,7 +15,7 @@ class DVSBase {
 public:
     DVSBase(int height, int width, float threshold_pos, float threshold_neg = -1.0f);
 
-    std::vector<Event> process_frame(float timestamp, const std::vector<float>& log_intensity_frame);
+    std::vector<Event> process_frame(float timestamp, const std::vector<float>& intensity_frame);
 
     int width() const { return width_; }
     int height() const { return height_; }
