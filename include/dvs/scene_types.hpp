@@ -12,12 +12,6 @@ struct MeshData {
     std::vector<uint3> indices;
 };
 
-template<typename float3>
-struct Ray {
-    float3 origin;
-    float3 direction;
-};
-
 template <typename float3>
 struct Triangle {
     float3 v0;

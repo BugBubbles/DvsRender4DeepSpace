@@ -16,10 +16,9 @@ class BVHBuilder {
 public:
   // 输入：三角形数组（原始顺序）
   // 输出：构建后的 BVH 节点数组（线性二叉树）和按 BVH 顺序重排的三角形数组
-  static int build(const std::vector<Triangle<Vec3>> &triangles,
-                   const BVHBuildParams &params,
+  static int build(const BVHBuildParams &params,
                    std::vector<BVHNode<Vec3>> &out_nodes,
-                   std::vector<Triangle<Vec3>> &out_triangles);
+                   std::vector<Triangle<Vec3>> &triangles);
 
 private:
   struct BuildContext {

@@ -5,12 +5,18 @@
 
 namespace dvs {
 
-GpuRaycaster::GpuRaycaster(const std::vector<BVHNode<Vec3>> &nodes,
-                           const std::vector<Triangle<Vec3>> &triangles,
-                           const int root_index)
-    : root_index_(root_index) {
+GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
+                           const int root_index,
+                           const HapkeParams &hapke_params)
+    : root_index_(root_index), hapke_params_(hapke_params), fx_(scene.fx),
+      fy_(scene.fy), cx_(scene.cx), cy_(scene.cy), width_(scene.width),
+      height_(scene.height) {
+  const auto &nodes = scene.bvh_nodes;
+  const auto &triangles = scene.bvh_triangles;
+
   node_count_ = static_cast<int>(nodes.size());
   tri_count_ = static_cast<int>(triangles.size());
+  ray_count_ = width_ * height_;
   if (node_count_ <= 0 || tri_count_ <= 0) {
     throw std::invalid_argument(
         "prebuilt BVH requires non-empty nodes and triangles");
@@ -60,6 +66,11 @@ GpuRaycaster::GpuRaycaster(const std::vector<BVHNode<Vec3>> &nodes,
       cudaMemcpy(d_tris_, float_tris.data(),
                  sizeof(Triangle<float3>) * static_cast<size_t>(tri_count_),
                  cudaMemcpyHostToDevice));
+
+  // 预分配足够的内存用于存储每一帧的光线、交点结果和光强度
+  CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_));
+  CUDA_CHECK(cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count_));
+  CUDA_CHECK(cudaMalloc(&d_lights_, sizeof(float) * ray_count_));
 }
 void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
                                 int root) const {
@@ -117,91 +128,69 @@ void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
             << ", leaves: " << leaf_count << ", internals: " << internal_count
             << std::endl;
 }
-void GpuRaycaster::intersect(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-                             int frame_idx,
-                             std::vector<Intersection<Vec3>> &hits) {
-  int width = scene.width;
-  int height = scene.height;
-  float fx = scene.fx;
-  float fy = scene.fy;
-  float cx = scene.cx;
-  float cy = scene.cy;
+void GpuRaycaster::render_main(const FrameData<Vec3, Mat3> &frame,
+                               std::vector<float> &light_frame) {
   auto err = cudaGetLastError();
-
-  auto &frame = scene.frames[frame_idx];
-  float3 origin = make_float3(frame.camera_origin.x(), frame.camera_origin.y(),
-                              frame.camera_origin.z());
+  float3 ray_origin =
+      make_float3(frame.camera_origin.x(), frame.camera_origin.y(),
+                  frame.camera_origin.z());
   float *d_camera_world;
   CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9));
   CUDA_CHECK(cudaMemcpy(d_camera_world, frame.camera_world.data(),
                         sizeof(float) * 9, cudaMemcpyHostToDevice));
-
-  ensure_ray_capacity(static_cast<std::size_t>(width * height));
   // 生成视线
   dim3 block_size(16, 16);
-  dim3 grid_size((width + block_size.x - 1) / block_size.x,
-                 (height + block_size.y - 1) / block_size.y);
+  dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+                 (height_ + block_size.y - 1) / block_size.y);
   view_direction_batch_kernel<<<grid_size, block_size>>>(
-      width, height, fx, fy, cx, cy, d_camera_world, origin, d_rays_);
+      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, ray_origin, d_rays_);
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Kernel error = " << cudaGetErrorString(err) << "\n";
-  // 进行批量求交
+  std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
+  // 进行批量求交，暴力枚举法
   // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
   //     width, height, tri_count_, node_count_, d_nodes_, d_tris_, d_rays_,
   //     d_hits_);
-  const int ray_count = width * height;
   const int threads = 128; // 或 256
-  const int blocks = (ray_count + threads - 1) / threads;
-  batch_intersect_kernel<<<blocks, threads>>>(d_nodes_, root_index_, d_tris_,
-                                              d_rays_, width * height, d_hits_);
-  // 测试单测，只计算256，256这个像素的交点，验证intersect_triangle的正确性
-  // Ray<float3> test_ray;
-  // test_ray.origin = make_float3(21.7763, -32185.2109, 7938.9810);
-  // test_ray.direction = make_float3(-0.0104, 0.1778, -0.9840);
+  const int blocks = (ray_count_ + threads - 1) / threads;
+  batch_intersect_kernel<<<blocks, threads>>>(
+      d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_, d_hits_);
 
-  // BVHNode<float3> *test_nodes = new BVHNode<float3>[node_count_];
-  // Triangle<float3> *test_tris = new Triangle<float3>[tri_count_];
-  // CUDA_CHECK(
-  //     cudaMemcpy(test_nodes, d_nodes_,
-  //                sizeof(BVHNode<float3>) * static_cast<size_t>(node_count_),
-  //                cudaMemcpyDeviceToHost));
-  // CUDA_CHECK(
-  //     cudaMemcpy(test_tris, d_tris_,
-  //                sizeof(Triangle<float3>) * static_cast<size_t>(tri_count_),
-  //                cudaMemcpyDeviceToHost));
-
-  // Intersection<float3> hit = intersect_single_ray_cpu(
-  //     test_nodes, root_index_, test_tris, test_ray, node_count_);
-  // std::cout << "CPU single ray test: hit=" << hit.hit << " t=" << hit.t
-  //           << " tri_idx=" << hit.triangle_index << " point=(" << hit.point.x
-  //           << "," << hit.point.y << "," << hit.point.z << ") normal=("
-  //           << hit.normal.x << "," << hit.normal.y << "," << hit.normal.z
-  //           << ")\n";
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Kernel error = " << cudaGetErrorString(err) << "\n";
+  std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
   // 检查求交结果
-  hits.resize(static_cast<std::size_t>(width * height));
+  std::vector<Intersection<float3>> hits(static_cast<std::size_t>(ray_count_));
   CUDA_CHECK(cudaMemcpy(hits.data(), d_hits_,
-                        sizeof(Intersection<float3>) * width * height,
+                        sizeof(Intersection<float3>) * ray_count_,
                         cudaMemcpyDeviceToHost));
   cudaFree(d_camera_world);
-  // 将所有的光线、交点等信息打印出来，验证是否正确
-  std::ofstream ofs("debug_output.txt");
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      int idx = y * width + x;
-      ofs << "Pixel (" << x << "," << y << "): "
-          << "hit=" << hits[idx].hit << " t=" << hits[idx].t
-          << " tri_idx=" << hits[idx].triangle_index << " point=("
-          << hits[idx].point.x() << "," << hits[idx].point.y() << ","
-          << hits[idx].point.z() << ")"
-          << " normal=(" << hits[idx].normal.x() << "," << hits[idx].normal.y()
-          << "," << hits[idx].normal.z() << ")" << std::endl;
+  // 计算光照，使用Hapke模型
+  float3 light_dir = make_float3(frame.light_dir.x(), frame.light_dir.y(),
+                                 frame.light_dir.z());
 
-      ofs.flush();
-    }
-  }
+
+  float light_intensity = frame.light_intensity;
+  batch_render_kernel<<<blocks, threads>>>(
+      d_hits_, d_rays_, ray_origin, light_dir, light_intensity, hapke_params_,
+      ray_count_, d_lights_);
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+  // 将结果从GPU复制回CPU
+  light_frame.resize(static_cast<std::size_t>(ray_count_));
+  CUDA_CHECK(cudaMemcpy(light_frame.data(), d_lights_,
+                        sizeof(float) * ray_count_, cudaMemcpyDeviceToHost));
+  // 输出调试信息
+  // std::ofstream ofs("debug_output.txt");
+  // for (int y = 0; y < height_; ++y) {
+  //   for (int x = 0; x < width_; ++x) {
+  //     int idx = y * width_ + x;
+  //     ofs << "Pixel (" << x << "," << y << "): light=" << light_frame[idx]
+  //         << std::endl;
+  //     ofs.flush();
+  //   }
+  // }
+  // ofs.close();
 }
 } // namespace dvs

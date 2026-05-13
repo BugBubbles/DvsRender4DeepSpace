@@ -3,6 +3,7 @@
 #include <climits>
 #include <cmath>
 #include <time.h>
+#include <vector>
 
 namespace dvs {
 
@@ -14,13 +15,11 @@ static AABB<Vec3> compute_tri_aabb(const Triangle<Vec3> &tri) {
   return box;
 }
 
-int BVHBuilder::build(const std::vector<Triangle<Vec3>> &triangles,
-                      const BVHBuildParams &params,
+int BVHBuilder::build(const BVHBuildParams &params,
                       std::vector<BVHNode<Vec3>> &out_nodes,
-                      std::vector<Triangle<Vec3>> &out_triangles) {
+                      std::vector<Triangle<Vec3>> &triangles) {
   if (triangles.empty()) {
     out_nodes.clear();
-    out_triangles.clear();
     return -1;
   }
 
@@ -39,11 +38,13 @@ int BVHBuilder::build(const std::vector<Triangle<Vec3>> &triangles,
 
   int root_index = build_node(ctx, 0, static_cast<int>(ctx.refs.size()), 0);
 
+  std::vector<Triangle<Vec3>> out_triangles;
   out_triangles.resize(triangles.size());
   for (int i = 0; i < static_cast<int>(ctx.refs.size()); ++i) {
     out_triangles[i] = triangles[ctx.refs[i].tri_index];
   }
 
+  triangles = std::move(out_triangles);
   out_nodes = std::move(ctx.nodes);
 
   float end_time = (float)clock() / CLOCKS_PER_SEC;

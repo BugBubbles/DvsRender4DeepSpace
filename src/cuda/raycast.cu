@@ -1,5 +1,4 @@
 #include "bvh/build.h"
-#include "dvs/hapke.hpp"
 #include "dvs/helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/raycast.hpp"
@@ -39,10 +38,11 @@ float3 bvh_inverse_direction_cpu(const float3 dir) {
 // 输出：dist[0] = 左子交点进入距离，dist[1] = 右子交点进入距离
 // 返回：掩码 bit0=左子命中，bit1=右子命中（同 Blender 的 traverse_mask）
 // ---------------------------------------------------------------------------
-__device__ __forceinline__ int
-intersect_two_children(const float3 P, const float3 idir, const float t_min,
-                       const float t_max, const AABB<float3> &box_left,
-                       const AABB<float3> &box_right, float *dist) {
+__device__ int intersect_two_children(const float3 P, const float3 idir,
+                                      const float t_min, const float t_max,
+                                      const AABB<float3> &box_left,
+                                      const AABB<float3> &box_right,
+                                      float *dist) {
   // 左子
   float3 l_min = make_float3(box_left.min.x, box_left.min.y, box_left.min.z);
   float3 l_max = make_float3(box_left.max.x, box_left.max.y, box_left.max.z);
@@ -135,22 +135,22 @@ int intersect_two_children_cpu(const float3 P, const float3 idir,
  * @param v0,v1,v2 三角形顶点
  * @param n0,n1,n2 三角形顶点法线（用于插值计算交点法线）
  */
-__device__ bool intersect_triangle(const Ray<float3> &ray,
+__device__ bool intersect_triangle(const float3 &ray, const float3 &ray_origin,
                                    const Triangle<float3> &tri, float *out_t,
                                    float *out_u, float *out_v) {
   const float3 edge1 = tri.v1 - tri.v0;
   const float3 edge2 = tri.v2 - tri.v0;
-  const float3 pvec = cross(ray.direction, edge2);
+  const float3 pvec = cross(ray, edge2);
   const float det = dot(edge1, pvec);
   if (fabsf(det) < kRayEps)
     return false;
   const float inv_det = 1.0f / det;
-  const float3 tvec = ray.origin - tri.v0;
+  const float3 tvec = ray_origin - tri.v0;
   const float u = dot(tvec, pvec) * inv_det;
   if (u < 0.0f || u > 1.0f)
     return false;
   const float3 qvec = cross(tvec, edge1);
-  const float v = dot(ray.direction, qvec) * inv_det;
+  const float v = dot(ray, qvec) * inv_det;
   if (v < 0.0f || (u + v) > 1.0f)
     return false;
   const float t = dot(edge2, qvec) * inv_det;
@@ -161,22 +161,23 @@ __device__ bool intersect_triangle(const Ray<float3> &ray,
   *out_v = v;
   return true;
 }
-bool intersect_triangle_cpu(const Ray<float3> &ray, const Triangle<float3> &tri,
-                            float *out_t, float *out_u, float *out_v) {
+bool intersect_triangle_cpu(const float3 &ray, const float3 &ray_origin,
+                            const Triangle<float3> &tri, float *out_t,
+                            float *out_u, float *out_v) {
 
   const float3 edge1 = tri.v1 - tri.v0;
   const float3 edge2 = tri.v2 - tri.v0;
-  const float3 pvec = cross(ray.direction, edge2);
+  const float3 pvec = cross(ray, edge2);
   const float det = dot(edge1, pvec);
   if (std::fabs(det) < kRayEps)
     return false;
   const float inv_det = 1.0f / det;
-  const float3 tvec = ray.origin - tri.v0;
+  const float3 tvec = ray_origin - tri.v0;
   const float u = dot(tvec, pvec) * inv_det;
   if (u < 0.0f || u > 1.0f)
     return false;
   const float3 qvec = cross(tvec, edge1);
-  const float v = dot(ray.direction, qvec) * inv_det;
+  const float v = dot(ray, qvec) * inv_det;
   if (v < 0.0f || (u + v) > 1.0f)
     return false;
   const float t = dot(edge2, qvec) * inv_det;
@@ -194,14 +195,15 @@ bool intersect_triangle_cpu(const Ray<float3> &ray, const Triangle<float3> &tri,
 __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
                                        int root_index,
                                        const Triangle<float3> *triangles,
-                                       const Ray<float3> *rays, int ray_count,
+                                       const float3 *rays,
+                                       const float3 ray_origin, int ray_count,
                                        Intersection<float3> *out_hits) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= ray_count)
     return;
 
-  Ray<float3> ray = rays[idx];
-  float3 idir = bvh_inverse_direction(ray.direction);
+  float3 ray = rays[idx];
+  float3 idir = bvh_inverse_direction(ray);
 
   Intersection<float3> hit;
   hit.hit = 0;
@@ -225,14 +227,15 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
         int tri_id = node.start + i;
         float t, u, v;
 
-        if (intersect_triangle(ray, triangles[tri_id], &t, &u, &v)) {
+        if (intersect_triangle(ray, ray_origin, triangles[tri_id], &t, &u,
+                               &v)) {
           if (t < hit.t) {
             hit.hit = 1;
             hit.t = t;
             t_max = t;
             hit.triangle_index = tri_id;
             const float w = 1 - u - v;
-            hit.point = ray.origin + ray.direction * t;
+            hit.point = ray_origin + ray * t;
             hit.normal =
                 normalize(triangles[tri_id].n0 * w + triangles[tri_id].n1 * u +
                           triangles[tri_id].n2 * v);
@@ -244,7 +247,7 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
 
     // Internal node
     float dist[2];
-    int mask = intersect_two_children(ray.origin, idir, kRayEps, t_max,
+    int mask = intersect_two_children(ray_origin, idir, kRayEps, t_max,
                                       nodes[node.left].box,
                                       nodes[node.right].box, dist);
 
@@ -274,97 +277,102 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
   out_hits[idx] = hit;
 }
 
-Intersection<float3> intersect_single_ray_cpu(const BVHNode<float3> *nodes,
-                                              int root_index,
-                                              const Triangle<float3> *triangles,
-                                              const Ray<float3> &ray,
-                                              const int node_count) {
+void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
+                                const Triangle<float3> *triangles,
+                                const float3 *rays, const float3 ray_origin,
+                                const int ray_count,
+                                Intersection<float3> *out_hits) {
   // ---- 初始化 ----
-  float3 idir = bvh_inverse_direction_cpu(ray.direction);
 
-  Intersection<float3> hit;
-  hit.hit = 0;
-  hit.t = 1e30f;
-  hit.triangle_index = -1;
+  for (int i = 0; i < ray_count; i++) {
+    auto ray = rays[i];
 
-  float t_max = hit.t;
+    float3 idir = bvh_inverse_direction_cpu(ray);
+    Intersection<float3> hit;
+    hit.hit = 0;
+    hit.t = 1e30f;
+    hit.triangle_index = -1;
 
-  int stack[kMaxStackSize];
-  int sp = 0;
+    float t_max = hit.t;
 
-  stack[sp++] = root_index;
+    int stack[kMaxStackSize];
+    int sp = 0;
 
-  printf("CPU Test: root node has %d triangles\n", nodes[root_index].count);
+    stack[sp++] = root_index;
 
-  // ---- BVH 遍历 ----
-  while (sp > 0) {
-    int ni = stack[--sp];
-    const BVHNode<float3> &node = nodes[ni];
+    printf("CPU Test: root node has %d triangles\n", nodes[root_index].count);
 
-    if (node.count > 0) {
-      // ========= 叶子节点 — 三角面求交 =========
-      for (int i = 0; i < node.count; i++) {
-        int tri_id = node.start + i;
-        float t, u, v;
+    // ---- BVH 遍历 ----
+    while (sp > 0) {
+      int ni = stack[--sp];
+      const BVHNode<float3> &node = nodes[ni];
 
-        if (intersect_triangle_cpu(ray, triangles[tri_id], &t, &u, &v)) {
-          if (t < hit.t) {
-            hit.hit = 1;
-            hit.t = t;
-            t_max = t; // 重要：更新裁剪距离
-            hit.triangle_index = tri_id;
+      if (node.count > 0) {
+        // ========= 叶子节点 — 三角面求交 =========
+        for (int i = 0; i < node.count; i++) {
+          int tri_id = node.start + i;
+          float t, u, v;
 
-            // 如果需要也可计算交点与法线：
-            const float w = 1 - u - v;
-            hit.point = ray.origin + ray.direction * t;
-            hit.normal =
-                normalize(triangles[tri_id].n0 * w + triangles[tri_id].n1 * u +
-                          triangles[tri_id].n2 * v);
+          if (intersect_triangle_cpu(ray, ray_origin, triangles[tri_id], &t, &u,
+                                     &v)) {
+            if (t < hit.t) {
+              hit.hit = 1;
+              hit.t = t;
+              t_max = t; // 重要：更新裁剪距离
+              hit.triangle_index = tri_id;
+
+              // 如果需要也可计算交点与法线：
+              const float w = 1 - u - v;
+              hit.point = ray_origin + ray * t;
+              hit.normal = normalize(triangles[tri_id].n0 * w +
+                                     triangles[tri_id].n1 * u +
+                                     triangles[tri_id].n2 * v);
+            }
           }
         }
+        continue; // 继续处理栈
       }
-      continue; // 继续处理栈
-    }
-    std::cout << "CPU Test: internal node with left=" << node.left
-              << " right=" << node.right << std::endl;
+      std::cout << "CPU Test: internal node with left=" << node.left
+                << " right=" << node.right << std::endl;
 
-    // ========= 内部节点 — AABB 检测 =========
-    float dist[2];
-    int mask = intersect_two_children_cpu(ray.origin, idir, kRayEps, t_max,
-                                          nodes[node.left].box,
-                                          nodes[node.right].box, dist);
+      // ========= 内部节点 — AABB 检测 =========
+      float dist[2];
+      int mask = intersect_two_children_cpu(ray_origin, idir, kRayEps, t_max,
+                                            nodes[node.left].box,
+                                            nodes[node.right].box, dist);
 
-    if (mask == 0)
-      continue;
+      if (mask == 0)
+        continue;
 
-    // Blender-style order: near first
-    if (mask == 3) {
-      if (dist[0] < dist[1]) {
-        stack[sp++] = node.right;
+      // Blender-style order: near first
+      if (mask == 3) {
+        if (dist[0] < dist[1]) {
+          stack[sp++] = node.right;
+          stack[sp++] = node.left;
+        } else {
+          stack[sp++] = node.left;
+          stack[sp++] = node.right;
+        }
+      } else if (mask == 1) {
         stack[sp++] = node.left;
       } else {
-        stack[sp++] = node.left;
         stack[sp++] = node.right;
       }
-    } else if (mask == 1) {
-      stack[sp++] = node.left;
-    } else {
-      stack[sp++] = node.right;
-    }
 
-    if (sp >= kMaxStackSize) {
-      printf("Warning: stack overflow, aborting ray.\n");
-      break;
+      if (sp >= kMaxStackSize) {
+        printf("Warning: stack overflow, aborting ray.\n");
+        break;
+      }
     }
+    out_hits[i] = hit;
   }
-  return hit;
 }
 __global__ void view_direction_batch_kernel(const int width, const int height,
                                             const float fx, const float fy,
                                             const float cx, const float cy,
                                             const float *camera_world,
                                             const float3 origin,
-                                            Ray<float3> *out_rays) {
+                                            float3 *out_rays) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) {
@@ -385,14 +393,14 @@ __global__ void view_direction_batch_kernel(const int width, const int height,
           camera_world[8] * dir_camera.z);
 
   dir_world = normalize(dir_world);
-  out_rays[idx].origin = origin;
-  out_rays[idx].direction = dir_world;
+  out_rays[idx] = dir_world;
 }
 __global__ void intersect_brute_batch_kernel(const int width, const int height,
                                              int tri_count, int node_count,
                                              const BVHNode<float3> *d_nodes,
                                              const Triangle<float3> *d_tris,
-                                             const Ray<float3> *d_rays,
+                                             const float3 *d_rays,
+                                             const float3 ray_origin,
                                              Intersection<float3> *out_hits) {
   // 这里是你之前实现的核心遍历逻辑，直接复制过来即可
   // 每个视线都执行一次暴力求交，验证intersect_triangle的正确性
@@ -411,7 +419,7 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
     return;
   }
 
-  const Ray<float3> ray = d_rays[tid];
+  auto &ray = d_rays[tid];
   float closest_t = 1e30f;
   int closest_tri_idx = -1;
   float best_u = 0.0f;
@@ -420,7 +428,7 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
     float t = 0.0f;
     float u = 0.0f;
     float v = 0.0f;
-    if (!intersect_triangle(ray, d_tris[i], &t, &u, &v)) {
+    if (!intersect_triangle(ray, ray_origin, d_tris[i], &t, &u, &v)) {
       continue;
     }
     if (t < closest_t) {
@@ -439,7 +447,7 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
   const float w = 1.0f - best_u - best_v;
   const float3 interp_n =
       normalize(tri.n0 * w + tri.n1 * best_u + tri.n2 * best_v);
-  const float3 hit_point = ray.origin + ray.direction * closest_t;
+  const float3 hit_point = ray_origin + ray * closest_t;
   Intersection<float3> out;
   out.hit = 1;
   out.t = closest_t;
@@ -449,4 +457,24 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
   out_hits[tid] = out;
 }
 
+__global__ void batch_render_kernel(const Intersection<float3> *hits,
+                                    const float3 *rays, const float3 ray_origin,
+                                    const float3 light_direction,
+                                    const float scene_light_intensity,
+                                    const HapkeParams hapke_params,
+                                    const int ray_count,
+                                    float *out_light_intensity) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= ray_count)
+    return;
+  const Intersection<float3> &hit = hits[idx];
+  if (hit.hit) {
+    // 使用Hapke模型
+    out_light_intensity[idx] =
+        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_params);
+  } else {
+    // 没有命中，返回负数光照
+    out_light_intensity[idx] = -1.0f;
+  }
+}
 } // namespace dvs

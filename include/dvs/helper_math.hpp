@@ -12,16 +12,20 @@ constexpr float kRayEps = 1e-6f;
 static constexpr int kMaxStackSize = 128; // 足够支持 6900 万三角形的深度
 
 inline __host__ __device__ float clampf(float x, float lo, float hi) {
-  return clampf(x, lo, hi);
+  return fminf(fmaxf(x, lo), hi);
 }
-
 inline __host__ __device__ float3 operator+(float3 a, float3 b) {
   return make_float3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
 inline __host__ __device__ float3 operator-(float3 a, float3 b) {
   return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
-
+inline __host__ __device__ float3 operator-(float3 a) {
+  return make_float3(-a.x, -a.y, -a.z);
+}
+inline __host__ __device__ float length(float3 v) {
+  return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+}
 inline __host__ __device__ float3 cross(float3 a, float3 b) {
   return make_float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
                      a.x * b.y - a.y * b.x);
