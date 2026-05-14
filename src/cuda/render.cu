@@ -1,16 +1,20 @@
+#include "dvs/dvs_base.hpp"
 #include "dvs/hapke.hpp"
 #include "dvs/raycast.hpp"
+#include <ctime>
 #include <fstream>
 #include <iostream>
 
 namespace dvs {
 
 GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
+                           const DvsParameters &dvs_params,
                            const int root_index,
                            const HapkeParams &hapke_params)
     : root_index_(root_index), hapke_params_(hapke_params), fx_(scene.fx),
       fy_(scene.fy), cx_(scene.cx), cy_(scene.cy), width_(scene.width),
-      height_(scene.height) {
+      height_(scene.height), threshold_pos_(dvs_params.threshold_pos),
+      threshold_neg_(dvs_params.threshold_neg) {
   const auto &nodes = scene.bvh_nodes;
   const auto &triangles = scene.bvh_triangles;
 
@@ -55,22 +59,38 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
     dst_node.count = src_node.count;
   }
   CUDA_CHECK(cudaMalloc(&d_nodes_, sizeof(BVHNode<float3>) *
-                                       static_cast<size_t>(node_count_)));
+                                       static_cast<size_t>(node_count_)),
+             "Failed to allocate device memory for BVH nodes");
   CUDA_CHECK(cudaMalloc(&d_tris_, sizeof(Triangle<float3>) *
-                                      static_cast<size_t>(tri_count_)));
+                                      static_cast<size_t>(tri_count_)),
+             "Failed to allocate device memory for triangles");
   CUDA_CHECK(
       cudaMemcpy(d_nodes_, float_nodes.data(),
                  sizeof(BVHNode<float3>) * static_cast<size_t>(node_count_),
-                 cudaMemcpyHostToDevice));
+                 cudaMemcpyHostToDevice),
+      "Failed to copy BVH data from host to device");
   CUDA_CHECK(
       cudaMemcpy(d_tris_, float_tris.data(),
                  sizeof(Triangle<float3>) * static_cast<size_t>(tri_count_),
-                 cudaMemcpyHostToDevice));
+                 cudaMemcpyHostToDevice),
+      "Failed to copy BVH data from host to device");
 
   // 预分配足够的内存用于存储每一帧的光线、交点结果和光强度
-  CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_));
-  CUDA_CHECK(cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count_));
-  CUDA_CHECK(cudaMalloc(&d_lights_, sizeof(float) * ray_count_));
+  CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_),
+             "Failed to allocate device memory for rays");
+  CUDA_CHECK(cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count_),
+             "Failed to allocate device memory for intersection results");
+  CUDA_CHECK(cudaMalloc(&d_lights_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for light intensity buffer");
+  CUDA_CHECK(cudaMalloc(&d_last_log_intensity_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for last log intensity buffer");
+  CUDA_CHECK(
+      cudaMemset(d_last_log_intensity_, 0.0f, sizeof(float) * ray_count_),
+      "Failed to initialize last log intensity buffer");
+  CUDA_CHECK(cudaMalloc(&d_events_, sizeof(Event) * ray_count_),
+             "Failed to allocate device memory for events");
+  CUDA_CHECK(cudaMalloc(&d_event_count_, sizeof(int)),
+             "Failed to allocate device memory for event count");
 }
 void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
                                 int root) const {
@@ -128,25 +148,30 @@ void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
             << ", leaves: " << leaf_count << ", internals: " << internal_count
             << std::endl;
 }
-void GpuRaycaster::render_main(const FrameData<Vec3, Mat3> &frame,
+void GpuRaycaster::render_main(const Vec3 &camera_origin,
+                               const Mat3 &camera_world, const Vec3 &light_dir,
+                               const float light_intensity,
                                std::vector<float> &light_frame) {
+#ifdef DEBUG
   auto err = cudaGetLastError();
+#endif
   float3 ray_origin =
-      make_float3(frame.camera_origin.x(), frame.camera_origin.y(),
-                  frame.camera_origin.z());
+      make_float3(camera_origin.x(), camera_origin.y(), camera_origin.z());
   float *d_camera_world;
-  CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9));
-  CUDA_CHECK(cudaMemcpy(d_camera_world, frame.camera_world.data(),
-                        sizeof(float) * 9, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9),
+             "Failed to allocate device memory for camera world matrix");
+  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world.data(), sizeof(float) * 9,
+                        cudaMemcpyHostToDevice),
+             "Failed to copy camera world matrix from host to device");
   // 生成视线
   dim3 block_size(16, 16);
   dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
                  (height_ + block_size.y - 1) / block_size.y);
   view_direction_batch_kernel<<<grid_size, block_size>>>(
       width_, height_, fx_, fy_, cx_, cy_, d_camera_world, ray_origin, d_rays_);
-  cudaDeviceSynchronize();
-  err = cudaGetLastError();
-  std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
+  // cudaDeviceSynchronize();
+  // err = cudaGetLastError();
+  // std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
   // 进行批量求交，暴力枚举法
   // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
   //     width, height, tri_count_, node_count_, d_nodes_, d_tris_, d_rays_,
@@ -155,42 +180,167 @@ void GpuRaycaster::render_main(const FrameData<Vec3, Mat3> &frame,
   const int blocks = (ray_count_ + threads - 1) / threads;
   batch_intersect_kernel<<<blocks, threads>>>(
       d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_, d_hits_);
-
+#ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
-  // 检查求交结果
+#endif
   std::vector<Intersection<float3>> hits(static_cast<std::size_t>(ray_count_));
   CUDA_CHECK(cudaMemcpy(hits.data(), d_hits_,
                         sizeof(Intersection<float3>) * ray_count_,
-                        cudaMemcpyDeviceToHost));
+                        cudaMemcpyDeviceToHost),
+             "Failed to copy intersection results from device to host");
   cudaFree(d_camera_world);
   // 计算光照，使用Hapke模型
-  float3 light_dir = make_float3(frame.light_dir.x(), frame.light_dir.y(),
-                                 frame.light_dir.z());
+  float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 
-
-  float light_intensity = frame.light_intensity;
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_rays_, ray_origin, light_dir, light_intensity, hapke_params_,
+      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_params_,
       ray_count_, d_lights_);
+#ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+#endif
   // 将结果从GPU复制回CPU
   light_frame.resize(static_cast<std::size_t>(ray_count_));
   CUDA_CHECK(cudaMemcpy(light_frame.data(), d_lights_,
-                        sizeof(float) * ray_count_, cudaMemcpyDeviceToHost));
+                        sizeof(float) * ray_count_, cudaMemcpyDeviceToHost),
+             "Failed to copy light frame from device to host");
+#ifdef DEBUG
   // 输出调试信息
-  // std::ofstream ofs("debug_output.txt");
-  // for (int y = 0; y < height_; ++y) {
-  //   for (int x = 0; x < width_; ++x) {
-  //     int idx = y * width_ + x;
-  //     ofs << "Pixel (" << x << "," << y << "): light=" << light_frame[idx]
-  //         << std::endl;
-  //     ofs.flush();
-  //   }
-  // }
-  // ofs.close();
+  std::ofstream ofs("debug_output.txt");
+  for (int y = 0; y < height_; ++y) {
+    for (int x = 0; x < width_; ++x) {
+      int idx = y * width_ + x;
+      ofs << "Pixel (" << x << "," << y << "): light=" << light_frame[idx]
+          << std::endl;
+      ofs.flush();
+    }
+  }
+  ofs.close();
+#endif
+}
+
+void GpuRaycaster::render_main(const Vec3 &camera_origin,
+                               const Mat3 &camera_world, const Vec3 &light_dir,
+                               const float light_intensity,
+                               const float current_time,
+                               std::vector<Event> &events, float *test_time) {
+#ifdef DEBUG
+  auto err = cudaGetLastError();
+#endif
+  float3 ray_origin =
+      make_float3(camera_origin.x(), camera_origin.y(), camera_origin.z());
+  float *d_camera_world;
+  CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9),
+             "Failed to allocate device memory for camera world matrix");
+  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world.data(), sizeof(float) * 9,
+                        cudaMemcpyHostToDevice),
+             "Failed to copy camera world matrix from host to device");
+  // 生成视线
+  dim3 block_size(16, 16);
+  dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+                 (height_ + block_size.y - 1) / block_size.y);
+#ifdef DEBUG
+  float start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+  view_direction_batch_kernel<<<grid_size, block_size>>>(
+      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, ray_origin, d_rays_);
+  cudaFree(d_camera_world);
+#ifdef DEBUG
+  float end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+  test_time[0] = end_time - start_time;
+#endif
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
+#endif
+  // 进行批量求交，暴力枚举法
+  // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
+  //     width, height, tri_count_, node_count_, d_nodes_, d_tris_, d_rays_,
+  //     d_hits_);
+  const int threads = 128; // 或 256
+  const int blocks = (ray_count_ + threads - 1) / threads;
+#ifdef DEBUG
+  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+  batch_intersect_kernel<<<blocks, threads>>>(
+      d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_, d_hits_);
+#ifdef DEBUG
+  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+  test_time[1] += end_time - start_time;
+#endif
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
+#endif
+  // std::vector<Intersection<float3>>
+  // hits(static_cast<std::size_t>(ray_count_));
+  // CUDA_CHECK(cudaMemcpy(hits.data(), d_hits_,
+  //                       sizeof(Intersection<float3>) * ray_count_,
+  //                       cudaMemcpyDeviceToHost),
+  //            "Failed to copy intersection results from device to host");
+
+  // 计算光照，使用Hapke模型
+  float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
+#ifdef DEBUG
+  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+  batch_render_kernel<<<blocks, threads>>>(
+      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_params_,
+      ray_count_, d_lights_);
+#ifdef DEBUG
+  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+  test_time[2] += end_time - start_time;
+#endif
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+#endif
+  // 在GPU上生成事件
+  /*
+__global__ void batch_generate_events_kernel(
+    const float timestamp, const float *intensity_frame, const int width,
+    const int height, const float threshold_pos, const float threshold_neg,
+    float *last_log_intensity, Event *events, int *event_count)
+*/
+  CUDA_CHECK(cudaMemset(d_event_count_, 0, sizeof(int)),
+             "Failed to initialize event count");
+#ifdef DEBUG
+  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+  batch_generate_events_kernel<<<grid_size, block_size>>>(
+      current_time, d_lights_, width_, height_, threshold_pos_, threshold_neg_,
+      d_last_log_intensity_, d_events_, d_event_count_);
+#ifdef DEBUG
+  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+  test_time[3] += end_time - start_time;
+#endif
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
+            << "\n";
+#endif
+  int event_count = 0;
+#ifdef DEBUG
+  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+  CUDA_CHECK(cudaMemcpy(&event_count, d_event_count_, sizeof(int),
+                        cudaMemcpyDeviceToHost),
+             "Failed to copy event count from device to host");
+  events.resize(static_cast<std::size_t>(event_count));
+
+  CUDA_CHECK(cudaMemcpy(events.data(), d_events_, sizeof(Event) * event_count,
+                        cudaMemcpyDeviceToHost),
+             "Failed to copy events from device to host");
+#ifdef DEBUG
+  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+  test_time[4] += end_time - start_time;
+#endif
 }
 } // namespace dvs

@@ -2,7 +2,11 @@
 
 #include <vector>
 #include "dvs/math_types.hpp"
-#define DEBUG_INDEX 131328
+#ifdef DEBUG
+#define DEBUG_LOG(msg) std::cout << msg << std::endl;
+#else
+#define DEBUG_LOG(msg)
+#endif
 namespace dvs {
 
 template<typename float3, typename uint3>

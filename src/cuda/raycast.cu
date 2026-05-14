@@ -471,10 +471,10 @@ __global__ void batch_render_kernel(const Intersection<float3> *hits,
   if (hit.hit) {
     // 使用Hapke模型
     out_light_intensity[idx] =
-        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_params);
+        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_params) * scene_light_intensity;
   } else {
     // 没有命中，返回负数光照
-    out_light_intensity[idx] = -1.0f;
+    out_light_intensity[idx] = 0.0f;
   }
 }
 } // namespace dvs

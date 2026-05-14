@@ -25,10 +25,9 @@ DVSBase::process_frame(float timestamp,
   }
 
   std::vector<Event> events;
-  events.reserve(intensity_frame.size() / 10);
 
-  for (int y = 0; y < height_; ++y) {
-    for (int x = 0; x < width_; ++x) {
+  for (int16_t y = 0; y < height_; ++y) {
+    for (int16_t x = 0; x < width_; ++x) {
       const std::size_t idx = static_cast<std::size_t>(y * width_ + x);
       float current = intensity_frame[idx];
       if (current <= 0.0f)
@@ -40,7 +39,7 @@ DVSBase::process_frame(float timestamp,
         events.push_back(Event{timestamp, x, y, 1});
       } else if (last_log_intensity_[idx] >= log_current + threshold_neg_) {
         last_log_intensity_[idx] = log_current;
-        events.push_back(Event{timestamp, x, y, -1});
+        events.push_back(Event{timestamp, x, y, 0});
       }
     }
   }

@@ -12,6 +12,9 @@ find_package(CUDAToolkit REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(DEBUG)
+endif()
 file(GLOB BVH_SOURCES "src/bvh/*.cpp")
 file(GLOB BASIC_SOURCES "src/*.cpp")
 add_library(dvs_core STATIC

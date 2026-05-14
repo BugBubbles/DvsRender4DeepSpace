@@ -4,17 +4,19 @@
 #include <string>
 #include <vector>
 
+#include "dvs/dvs_base.hpp"
 #include "dvs/hapke.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
 #include <thrust/device_ptr.h>
 
-#define CUDA_CHECK(expr)                                                       \
+#define CUDA_CHECK(expr, pos)                                                  \
   do {                                                                         \
     const cudaError_t err__ = (expr);                                          \
     if (err__ != cudaSuccess) {                                                \
-      throw std::runtime_error(std::string("[CUDA] error: ") +                 \
+      throw std::runtime_error(std::string("[CUDA Error] in ") + pos +         \
+                               std::string(" : ") +                            \
                                cudaGetErrorString(err__));                     \
     }                                                                          \
   } while (0)
@@ -88,7 +90,7 @@ __global__ void batch_render_kernel(const Intersection<float3> *out_hits,
 class GpuRaycaster {
 public:
   GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-               const int root_index,
+               const DvsParameters &dvs_params, const int root_index,
                const HapkeParams &hapke_params = HapkeParams());
   ~GpuRaycaster() {
     if (d_nodes_ != nullptr) {
@@ -111,6 +113,18 @@ public:
       cudaFree(d_lights_);
       d_lights_ = nullptr;
     }
+    if (d_last_log_intensity_ != nullptr) {
+      cudaFree(d_last_log_intensity_);
+      d_last_log_intensity_ = nullptr;
+    }
+    if (d_events_ != nullptr) {
+      cudaFree(d_events_);
+      d_events_ = nullptr;
+    }
+    if (d_event_count_ != nullptr) {
+      cudaFree(d_event_count_);
+      d_event_count_ = nullptr;
+    }
     node_count_ = 0;
     tri_count_ = 0;
     root_index_ = 0;
@@ -118,8 +132,14 @@ public:
     ray_count_ = 0;
   };
 
-  void render_main(const FrameData<Vec3, Mat3> &frame,
+  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
+                   const Vec3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame);
+
+  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
+                   const Vec3 &light_dir, const float light_intensity,
+                   const float current_time, std::vector<Event> &events,
+                   float *time_records);
 
   void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
@@ -131,6 +151,9 @@ private:
   // 相机参数
   float fx_, fy_, cx_, cy_;
   int width_, height_;
+  // 事件相关参数
+  float threshold_pos_, threshold_neg_;
+  float *d_last_log_intensity_ = nullptr;
   // Hapke模型参数
   HapkeParams hapke_params_;
 
@@ -141,6 +164,8 @@ private:
   mutable float3 ray_origin_;
   mutable Intersection<float3> *d_hits_ = nullptr;
   mutable float *d_lights_ = nullptr;
+  mutable Event *d_events_ = nullptr;
+  mutable int *d_event_count_ = nullptr;
   mutable std::size_t ray_capacity_ = 0;
 };
 

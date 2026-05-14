@@ -1,5 +1,6 @@
-#include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -7,20 +8,22 @@
 
 #include "bvh/build.h"
 #include "dvs/dvs_base.hpp"
-#include "dvs/hapke.hpp"
 #include "dvs/progress.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_data.hpp"
 #include "dvs/scene_types.hpp"
+#include "dvs/trajectory.hpp"
 
 namespace {
 
 struct Options {
   std::string scene_dir;
-  std::string output_path = "events.txt";
+  std::string output_path = "events.bin";
   float threshold_pos = 0.3f;
   float threshold_neg = 0.3f;
   float end_time = std::numeric_limits<float>::max();
+  float time_resolution = 1e-6f; // 1 microsecond
+  float imu_fps = 200.0f;        // IMU输出频率，单位Hz
   bool threshold_neg_set = false;
   dvs::HapkeParams hapke;
 };
@@ -33,6 +36,10 @@ void print_usage(const char *prog) {
             << "  --threshold_pos <float>    positive event threshold\n"
             << "  --threshold_neg <float>    negative event threshold "
                "(default: threshold_pos)\n"
+            << " --time_resolution <float>  time resolution for event "
+               "generation (default: 1 us)\n"
+            << "--imu_fps <float>            IMU output frequency in Hz "
+               "(default: 200)\n"
             << "  --w <float> --b <float> --c <float>\n"
             << "  --hS <float> --B_S0 <float> --hC <float> --B_C0 <float>\n"
             << "  --phi <float> --thetap_deg <float>\n";
@@ -72,6 +79,11 @@ Options parse_args(int argc, char **argv) {
       opts.threshold_neg =
           parse_float_arg("--threshold_neg", require_value("--threshold_neg"));
       opts.threshold_neg_set = true;
+    } else if (arg == "--time_resolution") {
+      opts.time_resolution = parse_float_arg(
+          "--time_resolution", require_value("--time_resolution"));
+    } else if (arg == "--imu_fps") {
+      opts.imu_fps = parse_float_arg("--imu_fps", require_value("--imu_fps"));
     } else if (arg == "--w") {
       opts.hapke.w = parse_float_arg("--w", require_value("--w"));
     } else if (arg == "--b") {
@@ -131,43 +143,102 @@ int main(int argc, char **argv) {
       throw std::runtime_error("failed to load scene bundle: " + error_message);
     }
     std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
+
+    // 使用样条曲线获取连续位姿轨迹
+    dvs::CameraTrajectory traj(scene);
     dvs::BVHBuildParams params; // 可使用默认参数
+    dvs::DvsParameters dvs_params(opts.threshold_pos, opts.threshold_neg);
     int root_index =
         dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
 
-    dvs::GpuRaycaster raycaster(scene, root_index);
+    dvs::GpuRaycaster raycaster(scene, dvs_params, root_index);
     dvs::DVSBase dvs_sensor(scene.height, scene.width, opts.threshold_pos,
                             opts.threshold_neg);
 
-    std::ofstream events_out(opts.output_path);
+    std::ofstream events_out(opts.output_path, std::ios::binary);
+    std::ofstream traj_out("groundtruth.txt");
     if (!events_out) {
       throw std::runtime_error("failed to open output file: " +
                                opts.output_path);
     }
 
     std::size_t total_events = 0;
-    dvs::ProgressBar bar(scene.frames.size());
-    std::vector<float> light_frame(
-        static_cast<std::size_t>(scene.width * scene.height), 0.0f);
-    for (std::size_t frame_idx = 0; frame_idx < scene.frames.size();
-         ++frame_idx) {
-      const auto &frame = scene.frames[frame_idx];
 
-      const dvs::Vec3 light_dir = frame.light_dir.normalized();
-      raycaster.render_main(frame, light_frame);
+    float end_time = std::min(opts.end_time, scene.frames.back().timestamp);
+    float start_time = scene.frames.front().timestamp;
+    std::size_t total_steps = static_cast<std::size_t>((end_time - start_time) /
+                                                       opts.time_resolution);
 
-      const std::vector<dvs::Event> events =
-          dvs_sensor.process_frame(frame.timestamp, light_frame);
-      for (const dvs::Event &e : events) {
-        events_out << e.timestamp << " " << e.x << " " << e.y << " "
-                   << e.polarity << "\n";
+    dvs::ProgressBar bar(total_steps);
+    std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
+                                                   // 
+    std::vector<float> time_records(5, 0.0f);      // 用于记录不同阶段的时间
+#ifdef DEBUG
+    float time_start, time_end;
+    int test_id = 0;
+#endif
+    float next_write_time = start_time;
+    const float write_interval = 1.0f / opts.imu_fps;
+    for (float current_time = start_time; current_time < end_time;
+         current_time += opts.time_resolution) {
+      const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
+      dvs::Vec3 camera_origin = state.position;
+      dvs::Mat3 camera_world = state.orientation;
+      dvs::Vec3 linear_velocity = state.linear_velocity;
+      dvs::Vec3 angular_velocity = state.angular_velocity;
+      dvs::Vec3 light_dir = state.light_direction;
+      float light_intensity = state.light_intensity;
+
+      raycaster.render_main(camera_origin, camera_world, light_dir,
+                            light_intensity, current_time, events,
+                            time_records.data());
+
+      // const std::vector<dvs::Event> events =
+      // dvs_sensor.process_frame(current_time, light_frame);
+      // 将events中的事件移动到events_buffer中，清空events以便下一次使用
+      std::move(events.begin(), events.end(),
+                std::back_inserter(events_buffer));
+      events.clear();
+      // 输出当前时间和相机速度作为轨迹信息，精度为9位小数，以imu_fps频率输出
+      if (current_time >= next_write_time) {
+        next_write_time += write_interval;
+        traj_out << std::fixed << std::setprecision(9) << current_time << " "
+                 << linear_velocity.transpose() << " "
+                 << angular_velocity.transpose() << std::endl;
+#ifdef DEBUG
+        time_start = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+#endif
+        events_out.write(reinterpret_cast<const char *>(events_buffer.data()),
+                         events_buffer.size() * sizeof(dvs::Event));
+#ifdef DEBUG
+        time_end = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+        time_records[4] += (time_end - time_start);
+        time_start = time_end;
+#endif
+        total_events += events_buffer.size();
+        events_buffer.clear();
       }
-      total_events += events.size();
-      bar.update(frame_idx + 1);
+      bar.update();
+#ifdef DEBUG
+      test_id++;
+      if (test_id > 10) {
+        break; // 只测试前10帧，实际使用时可以去掉这个限制
+      }
+#endif
     }
 
     std::cout << "Finished. Wrote " << total_events << " events to "
               << opts.output_path << "\n";
+#ifdef DEBUG
+    std::cout << "Time for ray casting: " << time_records[0] << " seconds\n";
+    std::cout << "Time for intersecting:" << time_records[1] << " seconds\n";
+    std::cout << "Time for shading: " << time_records[2] << " seconds\n";
+    std::cout << "Time for event generation: " << time_records[3]
+              << " seconds\n";
+    std::cout << "Time for writing events: " << time_records[4] << " seconds\n";
+#endif
+    events_out.close();
+    traj_out.close();
     return 0;
   } catch (const std::exception &ex) {
     std::cerr << "Error: " << ex.what() << "\n";

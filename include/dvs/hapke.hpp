@@ -135,15 +135,20 @@ inline __host__ __device__ RoughnessTerms rough_S(float cosi, float cose,
   return out;
 }
 inline __host__ __device__ float hapke_brdf(const float3 &normal,
-                                           const float3 &light_dir,
-                                           const float3 &view_dir,
-                                           const HapkeParams &p) {
+                                            const float3 &light_dir,
+                                            const float3 &view_dir,
+                                            const HapkeParams &p) {
   const float3 n = normalize(normal);
   const float3 l = normalize(light_dir);
   const float3 v = normalize(view_dir);
+  float cosi = dot(n, l);
+  float cose = dot(n, v);
+  if (cosi <= 0.0f || cose <= 0.0f) {
+    return 0.0f;
+  }
 
-  const float cosi = fabsf(fmaxf(dot(n, l), -1e-6f));
-  const float cose = clampf(dot(n, v), 0.0f, 1.0f);
+  cosi = fmaxf(cosi, 0.0f);
+  cose = fmaxf(cose, 0.0f);
   const float sini = fmaxf(length(cross(n, l)), 1e-6f);
   const float sine = fmaxf(length(cross(n, v)), 1e-6f);
   const float cosg = clampf(dot(l, v), -1.0f, 1.0f);
@@ -161,7 +166,7 @@ inline __host__ __device__ float hapke_brdf(const float3 &normal,
   const float brdf = (p.w / (4.0f * kPi)) * (LS / cosi) * K *
                      (p_g * (1.0f + BS * p.B_S0) + M) * (1.0f + BC * p.B_C0) *
                      rst.S;
-  return brdf;
+  return brdf * cosi;
 }
 
 } // namespace dvs
