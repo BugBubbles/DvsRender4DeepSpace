@@ -19,12 +19,10 @@ namespace {
 struct Options {
   std::string scene_dir;
   std::string output_path = "events.bin";
-  float threshold_pos = 0.3f;
-  float threshold_neg = 0.3f;
+  std::string config_path = "./config/default.yaml";
   float end_time = std::numeric_limits<float>::max();
   float time_resolution = 1e-6f; // 1 microsecond
   float imu_fps = 200.0f;        // IMU输出频率，单位Hz
-  bool threshold_neg_set = false;
   dvs::HapkeParams hapke;
 };
 
@@ -33,9 +31,7 @@ void print_usage(const char *prog) {
             << "Options:\n"
             << "  --output <path>            output events file (default: "
                "events.txt)\n"
-            << "  --threshold_pos <float>    positive event threshold\n"
-            << "  --threshold_neg <float>    negative event threshold "
-               "(default: threshold_pos)\n"
+            << "--config <path>             path to YAML config file "
             << " --time_resolution <float>  time resolution for event "
                "generation (default: 1 us)\n"
             << "--imu_fps <float>            IMU output frequency in Hz "
@@ -72,13 +68,8 @@ Options parse_args(int argc, char **argv) {
           parse_float_arg("--end-time", require_value("--end-time"));
     } else if (arg == "--output") {
       opts.output_path = require_value("--output");
-    } else if (arg == "--threshold_pos") {
-      opts.threshold_pos =
-          parse_float_arg("--threshold_pos", require_value("--threshold_pos"));
-    } else if (arg == "--threshold_neg") {
-      opts.threshold_neg =
-          parse_float_arg("--threshold_neg", require_value("--threshold_neg"));
-      opts.threshold_neg_set = true;
+    } else if (arg == "--config") {
+      opts.config_path = require_value("--config");
     } else if (arg == "--time_resolution") {
       opts.time_resolution = parse_float_arg(
           "--time_resolution", require_value("--time_resolution"));
@@ -115,14 +106,9 @@ Options parse_args(int argc, char **argv) {
   if (opts.scene_dir.empty()) {
     throw std::runtime_error("--scene_dir is required");
   }
-  if (opts.threshold_pos <= 0.0f) {
-    throw std::runtime_error("--threshold_pos must be > 0");
-  }
-  if (!opts.threshold_neg_set) {
-    opts.threshold_neg = opts.threshold_pos;
-  }
-  if (opts.threshold_neg <= 0.0f) {
-    throw std::runtime_error("--threshold_neg must be > 0");
+  std::ifstream config_in(opts.config_path);
+  if (!config_in.good()) {
+    throw std::runtime_error("failed to open config file: " + opts.config_path);
   }
   return opts;
 }
@@ -139,21 +125,25 @@ int main(int argc, char **argv) {
     const Options opts = parse_args(argc, argv);
     dvs::SceneBundle<dvs::Vec3, dvs::Uint3, dvs::Mat3> scene;
     std::string error_message;
+    dvs::Config config(opts.config_path, error_message);
+    if (!error_message.empty()) {
+      throw std::runtime_error("failed to load config: " + error_message);
+      return 1;
+    }
     if (!dvs::load_scene_bundle(opts.scene_dir, &scene, &error_message)) {
       throw std::runtime_error("failed to load scene bundle: " + error_message);
+      return 1;
     }
+
     std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
 
     // 使用样条曲线获取连续位姿轨迹
-    dvs::CameraTrajectory traj(scene);
+    dvs::CameraTrajectory traj(scene.frames, config.scene.fps);
     dvs::BVHBuildParams params; // 可使用默认参数
-    dvs::DvsParameters dvs_params(opts.threshold_pos, opts.threshold_neg);
     int root_index =
         dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
 
-    dvs::GpuRaycaster raycaster(scene, dvs_params, root_index);
-    dvs::DVSBase dvs_sensor(scene.height, scene.width, opts.threshold_pos,
-                            opts.threshold_neg);
+    dvs::GpuRaycaster raycaster(scene, config, root_index);
 
     std::ofstream events_out(opts.output_path, std::ios::binary);
     std::ofstream traj_out("groundtruth.txt");
@@ -171,7 +161,7 @@ int main(int argc, char **argv) {
 
     dvs::ProgressBar bar(total_steps);
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
-                                                   // 
+                                                   //
     std::vector<float> time_records(5, 0.0f);      // 用于记录不同阶段的时间
 #ifdef DEBUG
     float time_start, time_end;

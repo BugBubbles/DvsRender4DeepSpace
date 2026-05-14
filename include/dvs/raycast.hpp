@@ -90,7 +90,7 @@ __global__ void batch_render_kernel(const Intersection<float3> *out_hits,
 class GpuRaycaster {
 public:
   GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-               const DvsParameters &dvs_params, const int root_index,
+               const Config &config, const int root_index,
                const HapkeParams &hapke_params = HapkeParams());
   ~GpuRaycaster() {
     if (d_nodes_ != nullptr) {
@@ -125,6 +125,12 @@ public:
       cudaFree(d_event_count_);
       d_event_count_ = nullptr;
     }
+#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+    if (d_refractory_map_ != nullptr) {
+      cudaFree(d_refractory_map_);
+      d_refractory_map_ = nullptr;
+    }
+#endif
     node_count_ = 0;
     tri_count_ = 0;
     root_index_ = 0;
@@ -152,8 +158,14 @@ private:
   float fx_, fy_, cx_, cy_;
   int width_, height_;
   // 事件相关参数
-  float threshold_pos_, threshold_neg_;
+  PhysicConfig physic_config_;
+  SceneConfig scene_config_;
+  // 上一帧的log强度，用于事件生成
   float *d_last_log_intensity_ = nullptr;
+#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+  // 不应期图，避免过快生成事件
+  float *d_refractory_map_ = nullptr;
+#endif
   // Hapke模型参数
   HapkeParams hapke_params_;
 

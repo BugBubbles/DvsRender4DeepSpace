@@ -15,6 +15,13 @@ find_package(Eigen3 REQUIRED)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
 endif()
+# 是否启用暗电流和不应期噪声模型
+option(ENABLE_DARK_CURRENT_REFRECTORY "Enable dark current and refractory noise model" ON)
+if (ENABLE_DARK_CURRENT_REFRECTORY)
+    add_compile_definitions(ENABLE_DARK_CURRENT_REFRECTORY)
+endif()
+
+
 file(GLOB BVH_SOURCES "src/bvh/*.cpp")
 file(GLOB BASIC_SOURCES "src/*.cpp")
 add_library(dvs_core STATIC

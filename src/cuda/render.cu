@@ -1,6 +1,6 @@
-#include "dvs/dvs_base.hpp"
 #include "dvs/hapke.hpp"
 #include "dvs/raycast.hpp"
+#include "dvs/scene_types.hpp"
 #include <ctime>
 #include <fstream>
 #include <iostream>
@@ -8,13 +8,11 @@
 namespace dvs {
 
 GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-                           const DvsParameters &dvs_params,
-                           const int root_index,
+                           const Config &config, const int root_index,
                            const HapkeParams &hapke_params)
-    : root_index_(root_index), hapke_params_(hapke_params), fx_(scene.fx),
-      fy_(scene.fy), cx_(scene.cx), cy_(scene.cy), width_(scene.width),
-      height_(scene.height), threshold_pos_(dvs_params.threshold_pos),
-      threshold_neg_(dvs_params.threshold_neg) {
+    : root_index_(root_index), hapke_params_(hapke_params), fx_(config.camera.fx),
+      fy_(config.camera.fy), cx_(config.camera.cx), cy_(config.camera.cy), width_(config.camera.width),
+      height_(config.camera.height), physic_config_(config.physic), scene_config_(config.scene) {
   const auto &nodes = scene.bvh_nodes;
   const auto &triangles = scene.bvh_triangles;
 
@@ -91,6 +89,12 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
              "Failed to allocate device memory for events");
   CUDA_CHECK(cudaMalloc(&d_event_count_, sizeof(int)),
              "Failed to allocate device memory for event count");
+#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+  CUDA_CHECK(cudaMalloc(&d_refractory_map_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for refractory map");
+  CUDA_CHECK(cudaMemset(d_refractory_map_, 0.0f, sizeof(float) * ray_count_),
+             "Failed to initialize refractory map");
+#endif
 }
 void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
                                 int root) const {
@@ -313,9 +317,20 @@ __global__ void batch_generate_events_kernel(
 #ifdef DEBUG
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
+
+#ifdef ENABLE_DARK_CURRENT_REFRECTORY
   batch_generate_events_kernel<<<grid_size, block_size>>>(
-      current_time, d_lights_, width_, height_, threshold_pos_, threshold_neg_,
-      d_last_log_intensity_, d_events_, d_event_count_);
+      current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
+      physic_config_.threshold_neg, physic_config_.dark_current,
+      physic_config_.refractory_time, d_refractory_map_, d_last_log_intensity_,
+      d_events_, d_event_count_);
+#else
+  batch_generate_events_kernel<<<grid_size, block_size>>>(
+      current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
+      physic_config_.threshold_neg, d_last_log_intensity_, d_events_,
+      d_event_count_);
+#endif
+
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[3] += end_time - start_time;

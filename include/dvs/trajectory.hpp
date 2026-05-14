@@ -77,8 +77,6 @@ class CameraTrajectory {
 public:
   CameraTrajectory() = default;
 
-  explicit CameraTrajectory(const SceneBundle<Vec3, Uint3, Mat3> &scene);
-
   CameraTrajectory(const std::vector<FrameData<Vec3, Mat3>> &frames, float fps);
 
   void build(const std::vector<FrameData<Vec3, Mat3>> &frames, float fps);

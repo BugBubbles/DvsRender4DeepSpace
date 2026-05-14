@@ -566,11 +566,6 @@ void CameraTrajectory::RotationBezierCurve::evaluate(
 // ============================================================================
 
 CameraTrajectory::CameraTrajectory(
-    const SceneBundle<Vec3, Uint3, Mat3> &scene) {
-  build(scene.frames, scene.fps);
-}
-
-CameraTrajectory::CameraTrajectory(
     const std::vector<FrameData<Vec3, Mat3>> &frames, float fps) {
   build(frames, fps);
 }

@@ -1,12 +1,10 @@
 #include "dvs/scene_data.hpp"
-#include "dvs/math_types.hpp"
+#include "dvs/scene_types.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <unordered_map>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -84,36 +82,6 @@ bool read_binary_u32(const std::filesystem::path &path,
       *err = "failed to read " + path.string();
     }
     return false;
-  }
-  return true;
-}
-
-bool parse_metadata(const std::filesystem::path &path,
-                    std::unordered_map<std::string, std::string> *kv,
-                    std::string *err) {
-  std::ifstream fin(path);
-  if (!fin) {
-    if (err != nullptr) {
-      *err = "failed to open " + path.string();
-    }
-    return false;
-  }
-
-  std::string line;
-  while (std::getline(fin, line)) {
-    line = trim(line);
-    if (line.empty() || line[0] == '#') {
-      continue;
-    }
-    const std::size_t eq = line.find('=');
-    if (eq == std::string::npos) {
-      continue;
-    }
-    const std::string key = trim(line.substr(0, eq));
-    const std::string value = trim(line.substr(eq + 1));
-    if (!key.empty()) {
-      (*kv)[key] = value;
-    }
   }
   return true;
 }
@@ -262,20 +230,6 @@ build_triangles_from_mesh(const MeshData<Vec3, Uint3> &mesh) {
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
                        SceneBundle<Vec3, Uint3, Mat3> *out_bundle,
                        std::string *error_message) {
-  std::unordered_map<std::string, std::string> meta;
-  if (!parse_metadata(bundle_dir / "metadata.txt", &meta, error_message)) {
-    return false;
-  }
-
-  if (meta.find("width") == meta.end() || meta.find("height") == meta.end()) {
-    if (error_message != nullptr) {
-      *error_message = "metadata.txt missing width/height";
-    }
-    return false;
-  }
-  std::cout << "Loading scene bundle from " << bundle_dir << " with resolution "
-            << meta["width"] << "x" << meta["height"] << std::endl;
-
   MeshData<Vec3, Uint3> mesh;
   if (!load_mesh_data(bundle_dir, &mesh, error_message)) {
     return false;
@@ -297,15 +251,7 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
   }
 
   SceneBundle<Vec3, Uint3, Mat3> bundle;
-  bundle.width = std::stoi(meta["width"]);
-  bundle.height = std::stoi(meta["height"]);
-  bundle.fps = (meta.find("fps") != meta.end()) ? std::stof(meta["fps"]) : 0.0f;
   bundle.frames = std::move(frames);
-  bundle.fx = std::stof(meta["fx"]);
-  bundle.fy = std::stof(meta["fy"]);
-  bundle.cx = std::stof(meta["cx"]);
-  bundle.cy = std::stof(meta["cy"]);
-
   bundle.bvh_triangles = build_triangles_from_mesh(mesh);
   bundle.bvh_nodes.clear();
 

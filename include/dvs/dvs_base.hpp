@@ -16,17 +16,23 @@ struct Event {
 };
 #pragma pack(pop)
 
-struct DvsParameters {
-  float threshold_pos = 0.0f;
-  float threshold_neg = 0.0f;
-  DvsParameters(float threshold_pos, float threshold_neg)
-      : threshold_pos(threshold_pos), threshold_neg(threshold_neg) {}
-};
-
+/**
+ * @brief 理想事件相机的CUDA核函数，用于批量生成事件。
+ */
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float threshold_pos, const float threshold_neg,
     float *last_log_intensity, Event *events, int *event_count);
+
+/**
+ * @brief 考虑暗电流和不应期的事件相机的CUDA核函数。
+ */
+__global__ void batch_generate_events_kernel(
+    const float timestamp, const float *intensity_frame, const int width,
+    const int height, const float threshold_pos, const float threshold_neg,
+    const float dark_current, const float refractory_time,
+    float *refractory_map, float *last_log_intensity, Event *events,
+    int *event_count);
 
 class DVSBase {
 public:
