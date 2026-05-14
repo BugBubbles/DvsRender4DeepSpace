@@ -66,7 +66,19 @@ struct PhysicConfig {
 // 场景配置参数
 struct SceneConfig {
   int frame_count;
-  float fps;
+  float fps, imu_fps, time_resolution;
+};
+// Hapke模型参数
+struct HapkeConfig {
+  float b = 0.24f;
+  float c = 0.305f;
+  float hS = 0.08f;
+  float hC = 1.0f;
+  float thetap = 26.0f * kPi / 180.0f;
+  float w = 0.324f;
+  float B_S0 = 2.42f;
+  float B_C0 = 0.0f;
+  float phi = 0.3f;
 };
 // 参数集合
 class Config {
@@ -74,6 +86,7 @@ public:
   CameraConfig camera;
   PhysicConfig physic;
   SceneConfig scene;
+  HapkeConfig hapke;
 
   Config(const std::string &config_file, std::string &err);
 };

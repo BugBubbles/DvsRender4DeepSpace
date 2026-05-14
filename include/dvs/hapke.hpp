@@ -2,21 +2,9 @@
 
 #include "dvs/helper_math.hpp"
 #include "dvs/math_types.hpp"
+#include "dvs/scene_types.hpp"
 
 namespace dvs {
-
-struct HapkeParams {
-  float b = 0.24f;
-  float c = 0.305f;
-  float hS = 0.08f;
-  float hC = 1.0f;
-  float thetap = 26.0f * kPi / 180.0f;
-  float w = 0.324f;
-  float B_S0 = 2.42f;
-  float B_C0 = 0.0f;
-  float phi = 0.3f;
-};
-
 struct RoughnessTerms {
   float mu0 = 0.0f;
   float mue = 0.0f;
@@ -137,7 +125,7 @@ inline __host__ __device__ RoughnessTerms rough_S(float cosi, float cose,
 inline __host__ __device__ float hapke_brdf(const float3 &normal,
                                             const float3 &light_dir,
                                             const float3 &view_dir,
-                                            const HapkeParams &p) {
+                                            const HapkeConfig &p) {
   const float3 n = normalize(normal);
   const float3 l = normalize(light_dir);
   const float3 v = normalize(view_dir);

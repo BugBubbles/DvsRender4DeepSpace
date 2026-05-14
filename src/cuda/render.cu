@@ -8,11 +8,12 @@
 namespace dvs {
 
 GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-                           const Config &config, const int root_index,
-                           const HapkeParams &hapke_params)
-    : root_index_(root_index), hapke_params_(hapke_params), fx_(config.camera.fx),
-      fy_(config.camera.fy), cx_(config.camera.cx), cy_(config.camera.cy), width_(config.camera.width),
-      height_(config.camera.height), physic_config_(config.physic), scene_config_(config.scene) {
+                           const Config &config, const int root_index)
+    : root_index_(root_index), hapke_config_(config.hapke),
+      fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),
+      cy_(config.camera.cy), width_(config.camera.width),
+      height_(config.camera.height), physic_config_(config.physic),
+      scene_config_(config.scene) {
   const auto &nodes = scene.bvh_nodes;
   const auto &triangles = scene.bvh_triangles;
 
@@ -199,7 +200,7 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
   float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_params_,
+      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
       ray_count_, d_lights_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
@@ -294,7 +295,7 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_params_,
+      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
       ray_count_, d_lights_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;

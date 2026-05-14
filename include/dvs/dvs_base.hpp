@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <cuda_runtime.h>
-#include <vector>
 
 namespace dvs {
 
@@ -33,24 +32,4 @@ __global__ void batch_generate_events_kernel(
     const float dark_current, const float refractory_time,
     float *refractory_map, float *last_log_intensity, Event *events,
     int *event_count);
-
-class DVSBase {
-public:
-  DVSBase(int height, int width, float threshold_pos,
-          float threshold_neg = -1.0f);
-
-  std::vector<Event> process_frame(float timestamp,
-                                   const std::vector<float> &intensity_frame);
-
-  int width() const { return width_; }
-  int height() const { return height_; }
-
-private:
-  int width_ = 0;
-  int height_ = 0;
-  float threshold_pos_ = 0.0f;
-  float threshold_neg_ = 0.0f;
-  std::vector<float> last_log_intensity_;
-};
-
 } // namespace dvs

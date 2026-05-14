@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "dvs/dvs_base.hpp"
-#include "dvs/hapke.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
@@ -76,7 +75,7 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
  * @param rays 输入光线数组
  * @param light_direction 光源方向
  * @param scene_light_intensity 场景光照强度
- * @param hapke_params Hapke模型参数
+ * @param hapke_config Hapke模型参数
  * @param ray_count 光线数量
  * @param out_light_intensity 输出光照强度数组
  */
@@ -84,14 +83,13 @@ __global__ void batch_render_kernel(const Intersection<float3> *out_hits,
                                     const float3 *rays, const float3 ray_origin,
                                     const float3 light_direction,
                                     const float scene_light_intensity,
-                                    const HapkeParams hapke_params,
+                                    const HapkeConfig hapke_config,
                                     const int ray_count,
                                     float *out_light_intensity);
 class GpuRaycaster {
 public:
   GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-               const Config &config, const int root_index,
-               const HapkeParams &hapke_params = HapkeParams());
+               const Config &config, const int root_index);
   ~GpuRaycaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);
@@ -166,8 +164,8 @@ private:
   // 不应期图，避免过快生成事件
   float *d_refractory_map_ = nullptr;
 #endif
-  // Hapke模型参数
-  HapkeParams hapke_params_;
+  // 渲染相关参数
+  HapkeConfig hapke_config_;
 
   // GPU数据
   BVHNode<float3> *d_nodes_ = nullptr;

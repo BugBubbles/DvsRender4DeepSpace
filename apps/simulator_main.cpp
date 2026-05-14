@@ -21,9 +21,6 @@ struct Options {
   std::string output_path = "events.bin";
   std::string config_path = "./config/default.yaml";
   float end_time = std::numeric_limits<float>::max();
-  float time_resolution = 1e-6f; // 1 microsecond
-  float imu_fps = 200.0f;        // IMU输出频率，单位Hz
-  dvs::HapkeParams hapke;
 };
 
 void print_usage(const char *prog) {
@@ -31,14 +28,10 @@ void print_usage(const char *prog) {
             << "Options:\n"
             << "  --output <path>            output events file (default: "
                "events.txt)\n"
+            << "  --end-time <seconds>       end time for simulation (default: "
+               "until end of scene)\n"
             << "--config <path>             path to YAML config file "
-            << " --time_resolution <float>  time resolution for event "
-               "generation (default: 1 us)\n"
-            << "--imu_fps <float>            IMU output frequency in Hz "
-               "(default: 200)\n"
-            << "  --w <float> --b <float> --c <float>\n"
-            << "  --hS <float> --B_S0 <float> --hC <float> --B_C0 <float>\n"
-            << "  --phi <float> --thetap_deg <float>\n";
+            << std::endl;
 }
 
 float parse_float_arg(const char *key, const std::string &value) {
@@ -70,31 +63,6 @@ Options parse_args(int argc, char **argv) {
       opts.output_path = require_value("--output");
     } else if (arg == "--config") {
       opts.config_path = require_value("--config");
-    } else if (arg == "--time_resolution") {
-      opts.time_resolution = parse_float_arg(
-          "--time_resolution", require_value("--time_resolution"));
-    } else if (arg == "--imu_fps") {
-      opts.imu_fps = parse_float_arg("--imu_fps", require_value("--imu_fps"));
-    } else if (arg == "--w") {
-      opts.hapke.w = parse_float_arg("--w", require_value("--w"));
-    } else if (arg == "--b") {
-      opts.hapke.b = parse_float_arg("--b", require_value("--b"));
-    } else if (arg == "--c") {
-      opts.hapke.c = parse_float_arg("--c", require_value("--c"));
-    } else if (arg == "--hS") {
-      opts.hapke.hS = parse_float_arg("--hS", require_value("--hS"));
-    } else if (arg == "--B_S0") {
-      opts.hapke.B_S0 = parse_float_arg("--B_S0", require_value("--B_S0"));
-    } else if (arg == "--hC") {
-      opts.hapke.hC = parse_float_arg("--hC", require_value("--hC"));
-    } else if (arg == "--B_C0") {
-      opts.hapke.B_C0 = parse_float_arg("--B_C0", require_value("--B_C0"));
-    } else if (arg == "--phi") {
-      opts.hapke.phi = parse_float_arg("--phi", require_value("--phi"));
-    } else if (arg == "--thetap_deg") {
-      const float deg =
-          parse_float_arg("--thetap_deg", require_value("--thetap_deg"));
-      opts.hapke.thetap = deg * dvs::kPi / 180.0f;
     } else if (arg == "--help" || arg == "-h") {
       print_usage(argv[0]);
       std::exit(0);
@@ -156,8 +124,8 @@ int main(int argc, char **argv) {
 
     float end_time = std::min(opts.end_time, scene.frames.back().timestamp);
     float start_time = scene.frames.front().timestamp;
-    std::size_t total_steps = static_cast<std::size_t>((end_time - start_time) /
-                                                       opts.time_resolution);
+    std::size_t total_steps = static_cast<std::size_t>(
+        (end_time - start_time) / config.scene.time_resolution);
 
     dvs::ProgressBar bar(total_steps);
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
@@ -168,9 +136,9 @@ int main(int argc, char **argv) {
     int test_id = 0;
 #endif
     float next_write_time = start_time;
-    const float write_interval = 1.0f / opts.imu_fps;
+    const float write_interval = 1.0f / config.scene.imu_fps;
     for (float current_time = start_time; current_time < end_time;
-         current_time += opts.time_resolution) {
+         current_time += config.scene.time_resolution) {
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
       dvs::Vec3 camera_origin = state.position;
       dvs::Mat3 camera_world = state.orientation;

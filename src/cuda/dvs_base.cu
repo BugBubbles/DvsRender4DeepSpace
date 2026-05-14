@@ -1,5 +1,4 @@
 #include "dvs/dvs_base.hpp"
-#include <cmath>
 #include <cuda_runtime.h>
 #include <vector_functions.h>
 

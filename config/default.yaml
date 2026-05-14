@@ -11,9 +11,22 @@ physic:
   threshold_neg: 0.3
   threshold_noise: 0.0
   dark_current: 0.0
-  refractory_time: 0.0
+  refractory_time: 2000e-6 # 200 us
   readout_bandwidth: 100000000
 
 scene:
   frame_count: 201
   fps: 24.0
+  imu_fps: 200
+  time_resolution: 1e-3
+
+hapke:
+  b: 0.24
+  c: 0.305
+  hS: 0.08
+  hC: 1.0
+  thetap: 0.453786 # 26.0 * kPi / 180.0
+  w: 0.324
+  B_S0: 2.42
+  B_C0: 0.0
+  phi: 0.3

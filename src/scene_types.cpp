@@ -199,5 +199,32 @@ Config::Config(const std::string &config_file, std::string &err) {
     return;
   if (!extract_required(scene_map, "scene", "fps", scene.fps, err, safe_stof))
     return;
+  if (!extract_required(scene_map, "scene", "imu_fps", scene.imu_fps, err,
+                        safe_stof))
+    return;
+  if (!extract_required(scene_map, "scene", "time_resolution",
+                        scene.time_resolution, err, safe_stof))
+    return;
+
+  const auto &hapke_map = kv["hapke"];
+  if (!extract_required(hapke_map, "hapke", "b", hapke.b, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "c", hapke.c, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "hS", hapke.hS, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "hC", hapke.hC, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "thetap", hapke.thetap, err,
+                        safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "w", hapke.w, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "B_S0", hapke.B_S0, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "B_C0", hapke.B_C0, err, safe_stof))
+    return;
+  if (!extract_required(hapke_map, "hapke", "phi", hapke.phi, err, safe_stof))
+    return;
 }
 } // namespace dvs

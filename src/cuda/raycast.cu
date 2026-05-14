@@ -2,6 +2,7 @@
 #include "dvs/helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/raycast.hpp"
+#include "dvs/hapke.hpp"
 #include "dvs/scene_types.hpp"
 
 #include <stdexcept>
@@ -461,7 +462,7 @@ __global__ void batch_render_kernel(const Intersection<float3> *hits,
                                     const float3 *rays, const float3 ray_origin,
                                     const float3 light_direction,
                                     const float scene_light_intensity,
-                                    const HapkeParams hapke_params,
+                                    const HapkeConfig hapke_config,
                                     const int ray_count,
                                     float *out_light_intensity) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -471,7 +472,7 @@ __global__ void batch_render_kernel(const Intersection<float3> *hits,
   if (hit.hit) {
     // 使用Hapke模型
     out_light_intensity[idx] =
-        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_params) * scene_light_intensity;
+        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_config) * scene_light_intensity;
   } else {
     // 没有命中，返回负数光照
     out_light_intensity[idx] = 0.0f;
