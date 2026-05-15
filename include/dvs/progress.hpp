@@ -19,6 +19,7 @@ public:
     if (total_ == 0) {
       return;
     }
+    completed = std::min(completed, total_);
     completed_ = completed;
     const double frac =
         static_cast<double>(completed) / static_cast<double>(total_);
@@ -47,9 +48,9 @@ public:
 
 private:
   static std::string to_hms(long long total_sec) {
-    const long long h = total_sec / 3600;
-    const long long m = (total_sec % 3600) / 60;
-    const long long s = total_sec % 60;
+    const long long h = std::max(total_sec / 3600, 0LL);
+    const long long m = std::max((total_sec % 3600) / 60, 0LL);
+    const long long s = std::max(total_sec % 60, 0LL);
     std::ostringstream oss;
     oss << std::setfill('0') << std::setw(2) << h << ":" << std::setw(2) << m
         << ":" << std::setw(2) << s;

@@ -16,9 +16,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
 endif()
 # 是否启用暗电流和不应期噪声模型
-option(ENABLE_DARK_CURRENT_REFRECTORY "Enable dark current and refractory noise model" ON)
-if (ENABLE_DARK_CURRENT_REFRECTORY)
-    add_compile_definitions(ENABLE_DARK_CURRENT_REFRECTORY)
+option(ENABLE_PHYSIC_EFFECTS "Enable dark current and refractory noise model" ON)
+if (ENABLE_PHYSIC_EFFECTS)
+    add_compile_definitions(ENABLE_PHYSIC_EFFECTS)
 endif()
 
 
@@ -47,6 +47,7 @@ add_library(dvs_cuda STATIC
 target_include_directories(dvs_cuda
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CUDAToolkit_INCLUDE_DIRS}/../targets/x86_64-linux/include
 )
 
 target_link_libraries(dvs_cuda

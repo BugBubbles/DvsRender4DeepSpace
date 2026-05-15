@@ -2,10 +2,33 @@
 #include "dvs/raycast.hpp"
 #include "dvs/scene_types.hpp"
 #include <ctime>
+#include <curand_kernel.h>
 #include <fstream>
 #include <iostream>
+#include <thrust/device_ptr.h>
+#include <thrust/fill.h>
 
 namespace dvs {
+
+__global__ void threshold_map_init_kernel(const int width, const int height,
+                                          const float threshold,
+                                          const float noise_stddev,
+                                          float *threshold_map) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height)
+    return;
+
+  int idx = y * width + x;
+
+  curandState state;
+  curand_init(RAND_SEED, idx, 0, &state); // 固定种子确保每次运行一致
+  // 使用均匀分布生成噪声
+  float noise = curand_uniform(&state) * 2.0f * noise_stddev -
+                noise_stddev; // [-noise_stddev, +noise_stddev]
+
+  threshold_map[idx] = threshold * (1.0f + noise); // 添加噪声后的阈值
+}
 
 GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
                            const Config &config, const int root_index)
@@ -90,13 +113,36 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
              "Failed to allocate device memory for events");
   CUDA_CHECK(cudaMalloc(&d_event_count_, sizeof(int)),
              "Failed to allocate device memory for event count");
-#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+#ifdef ENABLE_PHYSIC_EFFECTS
   CUDA_CHECK(cudaMalloc(&d_refractory_map_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for refractory map");
   CUDA_CHECK(cudaMemset(d_refractory_map_, 0.0f, sizeof(float) * ray_count_),
              "Failed to initialize refractory map");
+  CUDA_CHECK(cudaMalloc(&d_threshold_pos_map_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for positive threshold map");
+  CUDA_CHECK(cudaMalloc(&d_threshold_neg_map_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for negative threshold map");
+  // 阈值采用高斯核函数填充，均值为设定的阈值，标准差服从于physic_config_.threshold_noise
+  // (单位为百分比)
+  dim3 block_size(16, 16);
+  dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+                 (height_ + block_size.y - 1) / block_size.y);
+  threshold_map_init_kernel<<<grid_size, block_size>>>(
+      width_, height_, physic_config_.threshold_pos,
+      physic_config_.threshold_noise, d_threshold_pos_map_);
+  threshold_map_init_kernel<<<grid_size, block_size>>>(
+      width_, height_, physic_config_.threshold_neg,
+      physic_config_.threshold_noise, d_threshold_neg_map_);
 #endif
 }
+
+void GpuRaycaster::initialize(const float frame_intensity) {
+  // 初始化last_log_intensity为log(frame_intensity)，确保第一帧能正确生成事件
+  float initial_log_intensity = std::log(frame_intensity);
+  thrust::device_ptr<float> ptr(d_last_log_intensity_);
+  thrust::fill(ptr, ptr + ray_count_, initial_log_intensity);
+}
+
 void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
                                 int root) const {
   if (root < 0 || root >= static_cast<int>(nodes.size())) {
@@ -319,10 +365,10 @@ __global__ void batch_generate_events_kernel(
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
 
-#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+#ifdef ENABLE_PHYSIC_EFFECTS
   batch_generate_events_kernel<<<grid_size, block_size>>>(
-      current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
-      physic_config_.threshold_neg, physic_config_.dark_current,
+      current_time, d_lights_, width_, height_, d_threshold_pos_map_,
+      d_threshold_neg_map_, physic_config_.dark_current,
       physic_config_.refractory_time, d_refractory_map_, d_last_log_intensity_,
       d_events_, d_event_count_);
 #else

@@ -28,7 +28,7 @@ __global__ void batch_generate_events_kernel(
  */
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
-    const int height, const float threshold_pos, const float threshold_neg,
+    const int height, const float *threshold_pos_map, const float *threshold_neg_map,
     const float dark_current, const float refractory_time,
     float *refractory_map, float *last_log_intensity, Event *events,
     int *event_count);

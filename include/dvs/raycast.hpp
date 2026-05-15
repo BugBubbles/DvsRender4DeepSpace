@@ -9,7 +9,9 @@
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
 #include <thrust/device_ptr.h>
+#include <vector_types.h>
 
+#define RAND_SEED 114514
 #define CUDA_CHECK(expr, pos)                                                  \
   do {                                                                         \
     const cudaError_t err__ = (expr);                                          \
@@ -123,10 +125,18 @@ public:
       cudaFree(d_event_count_);
       d_event_count_ = nullptr;
     }
-#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+#ifdef ENABLE_PHYSIC_EFFECTS
     if (d_refractory_map_ != nullptr) {
       cudaFree(d_refractory_map_);
       d_refractory_map_ = nullptr;
+    }
+    if (d_threshold_pos_map_ != nullptr) {
+      cudaFree(d_threshold_pos_map_);
+      d_threshold_pos_map_ = nullptr;
+    }
+    if (d_threshold_neg_map_ != nullptr) {
+      cudaFree(d_threshold_neg_map_);
+      d_threshold_neg_map_ = nullptr;
     }
 #endif
     node_count_ = 0;
@@ -145,6 +155,8 @@ public:
                    const float current_time, std::vector<Event> &events,
                    float *time_records);
 
+  void initialize(const float frame_intensity);
+
   void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
 private:
@@ -160,9 +172,11 @@ private:
   SceneConfig scene_config_;
   // 上一帧的log强度，用于事件生成
   float *d_last_log_intensity_ = nullptr;
-#ifdef ENABLE_DARK_CURRENT_REFRECTORY
+#ifdef ENABLE_PHYSIC_EFFECTS
   // 不应期图，避免过快生成事件
   float *d_refractory_map_ = nullptr;
+  float *d_threshold_pos_map_ = nullptr;
+  float *d_threshold_neg_map_ = nullptr;
 #endif
   // 渲染相关参数
   HapkeConfig hapke_config_;

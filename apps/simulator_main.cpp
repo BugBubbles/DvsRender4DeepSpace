@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
     float end_time = std::min(opts.end_time, scene.frames.back().timestamp);
     float start_time = scene.frames.front().timestamp;
     std::size_t total_steps = static_cast<std::size_t>(
-        (end_time - start_time) / config.scene.time_resolution);
+        std::round((end_time - start_time) / config.scene.time_resolution));
 
     dvs::ProgressBar bar(total_steps);
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
@@ -137,15 +137,40 @@ int main(int argc, char **argv) {
 #endif
     float next_write_time = start_time;
     const float write_interval = 1.0f / config.scene.imu_fps;
+
+    // 渲染第一帧以获取平均光强度，以初始化事件图
+    const dvs::CameraTrajectoryState &state = traj.evaluate(start_time);
+    dvs::Vec3 camera_origin = state.position;
+    dvs::Mat3 camera_world = state.orientation;
+    dvs::Vec3 light_dir = state.light_direction;
+    dvs::Vec3 linear_velocity = state.linear_velocity;
+    dvs::Vec3 angular_velocity = state.angular_velocity;
+    float light_intensity = state.light_intensity;
+    std::vector<float> light_frame(config.camera.width * config.camera.height);
+    raycaster.render_main(camera_origin, camera_world, light_dir,
+                          light_intensity, light_frame);
+    float mean_light = 0.0f;
+    int valid_pixel_count = 0;
+    for (float &v : light_frame) {
+      if (v > 0.0f) {
+        mean_light += v;
+        valid_pixel_count++;
+      }
+    }
+    mean_light /= valid_pixel_count;
+    raycaster.initialize(mean_light);
+    std::cout << "Initialized event generation with mean light intensity: "
+              << mean_light << "\n";
+
     for (float current_time = start_time; current_time < end_time;
          current_time += config.scene.time_resolution) {
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
-      dvs::Vec3 camera_origin = state.position;
-      dvs::Mat3 camera_world = state.orientation;
-      dvs::Vec3 linear_velocity = state.linear_velocity;
-      dvs::Vec3 angular_velocity = state.angular_velocity;
-      dvs::Vec3 light_dir = state.light_direction;
-      float light_intensity = state.light_intensity;
+      camera_origin = state.position;
+      camera_world = state.orientation;
+      linear_velocity = state.linear_velocity;
+      angular_velocity = state.angular_velocity;
+      light_dir = state.light_direction;
+      light_intensity = state.light_intensity;
 
       raycaster.render_main(camera_origin, camera_world, light_dir,
                             light_intensity, current_time, events,
