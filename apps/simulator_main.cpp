@@ -162,8 +162,8 @@ int main(int argc, char **argv) {
     std::cout << "Initialized event generation with mean light intensity: "
               << mean_light << "\n";
 
-    for (float current_time = start_time; current_time < end_time;
-         current_time += config.scene.time_resolution) {
+    for (size_t step = 0; step < total_steps; ++step) {
+      float current_time = start_time + step * config.scene.time_resolution;
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
       camera_origin = state.position;
       camera_world = state.orientation;
