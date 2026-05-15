@@ -12,7 +12,8 @@ physic:
   threshold_noise: 0.0
   dark_current: 6.0
   refractory_time: 200e-6 # 200 us
-  readout_bandwidth: 100000000
+  hpf_time_constant: 100e-6
+  readout_bandwidth: 12e6
 
 scene:
   frame_count: 201

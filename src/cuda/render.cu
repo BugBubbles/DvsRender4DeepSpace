@@ -134,6 +134,17 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
       width_, height_, physic_config_.threshold_neg,
       physic_config_.threshold_noise, d_threshold_neg_map_);
 #endif
+
+#ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+  CUDA_CHECK(cudaMalloc(&d_last_voltage_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for refractory map");
+  CUDA_CHECK(cudaMemset(d_last_voltage_, 0.0f, sizeof(float) * ray_count_),
+             "Failed to initialize refractory map");
+  alpha_ = std::exp(-config.scene.time_resolution /
+                    physic_config_.hpf_time_constant);
+#endif
+#endif
 }
 
 void GpuRaycaster::initialize(const float frame_intensity) {
@@ -366,12 +377,23 @@ __global__ void batch_generate_events_kernel(
 #endif
 
 #ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+  // 考虑噪声模型与高通模型的事件仿真生成器
+  batch_generate_events_kernel<<<grid_size, block_size>>>(
+      current_time, d_lights_, width_, height_, d_threshold_pos_map_,
+      d_threshold_neg_map_, physic_config_.dark_current,
+      physic_config_.refractory_time, alpha_, d_refractory_map_,
+      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_);
+#else
+  // 考虑噪声模型的事件仿真生成器
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
       physic_config_.refractory_time, d_refractory_map_, d_last_log_intensity_,
       d_events_, d_event_count_);
+#endif
 #else
+  // 理想事件生成器，不考虑噪声与高通滤波
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
       physic_config_.threshold_neg, d_last_log_intensity_, d_events_,

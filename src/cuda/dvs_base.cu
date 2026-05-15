@@ -40,20 +40,19 @@ __global__ void batch_generate_events_kernel(
 
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
-    const int height, const float *threshold_pos_map, const float *threshold_neg_map,
-    const float dark_current, const float refractory_time,
-    float *refractory_map, float *last_log_intensity, Event *events,
-    int *event_count) {
+    const int height, const float *threshold_pos_map,
+    const float *threshold_neg_map, const float dark_current,
+    const float refractory_time, float *refractory_map,
+    float *last_log_intensity, Event *events, int *event_count) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
     return;
 
   int idx = y * width + x;
-  float current = intensity_frame[idx] + dark_current;
-  float refractory_end_time = refractory_map[idx];
-  if (timestamp < refractory_end_time)
+  if (timestamp < refractory_map[idx])
     return;
+  float current = intensity_frame[idx] + dark_current;
   // 光强转对数值
   float log_current = logf(current);
   if (last_log_intensity[idx] <= log_current - threshold_pos_map[idx]) {
@@ -70,4 +69,45 @@ __global__ void batch_generate_events_kernel(
     refractory_map[idx] = timestamp + refractory_time;
   }
 }
+#ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+__global__ void batch_generate_events_kernel(
+    const float timestamp, const float *intensity_frame, const int width,
+    const int height, const float *threshold_pos_map,
+    const float *threshold_neg_map, const float dark_current,
+    const float refractory_time, const float alpha, float *refractory_map,
+    float *last_log_intensity, float *last_voltage, Event *events,
+    int *event_count) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height)
+    return;
+
+  int idx = y * width + x;
+  if (timestamp < refractory_map[idx])
+    return;
+  float current = intensity_frame[idx] + dark_current;
+  // 光强转对数值
+  float log_current = logf(current);
+  // 高通滤波
+  float voltage_current = (1 - alpha) * last_voltage[idx] + alpha * log_current;
+  last_voltage[idx] = voltage_current;
+
+  if (last_log_intensity[idx] <= voltage_current - threshold_pos_map[idx]) {
+    last_log_intensity[idx] = voltage_current;
+    int pos = atomicAdd(event_count, 1);
+    events[pos] =
+        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 1};
+    refractory_map[idx] = timestamp + refractory_time;
+  } else if (last_log_intensity[idx] >=
+             voltage_current + threshold_neg_map[idx]) {
+    last_log_intensity[idx] = voltage_current;
+    int pos = atomicAdd(event_count, 1);
+    events[pos] =
+        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 0};
+    refractory_map[idx] = timestamp + refractory_time;
+  }
+}
+#endif
+#endif
 } // namespace dvs

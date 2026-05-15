@@ -139,6 +139,14 @@ public:
       d_threshold_neg_map_ = nullptr;
     }
 #endif
+#ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+    if (d_last_voltage_ != nullptr) {
+      cudaFree(d_last_voltage_);
+      d_last_voltage_ = nullptr;
+    }
+#endif
+#endif
     node_count_ = 0;
     tri_count_ = 0;
     root_index_ = 0;
@@ -177,6 +185,12 @@ private:
   float *d_refractory_map_ = nullptr;
   float *d_threshold_pos_map_ = nullptr;
   float *d_threshold_neg_map_ = nullptr;
+#endif
+#ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+  float *d_last_voltage_ = nullptr;
+  float alpha_;
+#endif
 #endif
   // 渲染相关参数
   HapkeConfig hapke_config_;

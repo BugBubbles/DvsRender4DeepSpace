@@ -16,9 +16,16 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
 endif()
 # 是否启用暗电流和不应期噪声模型
-option(ENABLE_PHYSIC_EFFECTS "Enable dark current and refractory noise model" ON)
+option(ENABLE_PHYSIC_EFFECTS "Enable dark current, noisy threshold and refractory noise model" ON)
 if (ENABLE_PHYSIC_EFFECTS)
     add_compile_definitions(ENABLE_PHYSIC_EFFECTS)
+endif()
+
+option(ENABLE_HIGH_PASS_FILTER "Enable high-pass filter for simulating the response of photoreceptors" ON)
+if (ENABLE_PHYSIC_EFFECTS AND ENABLE_HIGH_PASS_FILTER)
+    add_compile_definitions(ENABLE_HIGH_PASS_FILTER)
+else()
+    warning("High-pass filter is disabled. To use high-pass filter characteristic, ENABLE_PHYSIC_EFFECTS option is needed first.")
 endif()
 
 

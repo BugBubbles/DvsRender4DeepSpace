@@ -26,10 +26,26 @@ __global__ void batch_generate_events_kernel(
 /**
  * @brief 考虑暗电流和不应期的事件相机的CUDA核函数。
  */
+#ifdef ENABLE_PHYSIC_EFFECTS
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
-    const int height, const float *threshold_pos_map, const float *threshold_neg_map,
-    const float dark_current, const float refractory_time,
-    float *refractory_map, float *last_log_intensity, Event *events,
+    const int height, const float *threshold_pos_map,
+    const float *threshold_neg_map, const float dark_current,
+    const float refractory_time, float *refractory_map,
+    float *last_log_intensity, Event *events, int *event_count);
+#endif
+/**
+ * @brief 考虑暗电流和不应期以及高通滤波器的事件相机的CUDA核函数。
+ */
+#ifdef ENABLE_PHYSIC_EFFECTS
+#ifdef ENABLE_HIGH_PASS_FILTER
+__global__ void batch_generate_events_kernel(
+    const float timestamp, const float *intensity_frame, const int width,
+    const int height, const float *threshold_pos_map,
+    const float *threshold_neg_map, const float dark_current,
+    const float refractory_time, const float alpha, float *refractory_map,
+    float *last_log_intensity, float *last_voltage, Event *events,
     int *event_count);
+#endif
+#endif
 } // namespace dvs

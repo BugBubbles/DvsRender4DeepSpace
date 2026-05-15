@@ -62,6 +62,7 @@ struct CameraConfig {
 struct PhysicConfig {
   float threshold_pos, threshold_neg, threshold_noise;
   float dark_current, refractory_time, readout_bandwidth;
+  float hpf_time_constant;
 };
 // 场景配置参数
 struct SceneConfig {
