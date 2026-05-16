@@ -1,8 +1,8 @@
 #include "bvh/build.h"
+#include "dvs/hapke.hpp"
 #include "dvs/helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/raycast.hpp"
-#include "dvs/hapke.hpp"
 #include "dvs/scene_types.hpp"
 
 #include <stdexcept>
@@ -193,25 +193,25 @@ bool intersect_triangle_cpu(const float3 &ray, const float3 &ray_origin,
 // ---------------------------------------------------------------------------
 // 主遍历 kernel：严格按照 Blender 逻辑，适配你的 BVHNode / Triangle
 // ---------------------------------------------------------------------------
-__global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
-                                       int root_index,
-                                       const Triangle<float3> *triangles,
-                                       const float3 *rays,
-                                       const float3 ray_origin, int ray_count,
-                                       Intersection<float3> *out_hits) {
+__global__ void
+batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
+                       const Triangle<float3> *triangles, const float3 *rays,
+                       const float3 ray_origin, int ray_count,
+                       Intersection<float3> *out_hits, float *depth_map) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= ray_count)
     return;
 
   float3 ray = rays[idx];
+  float &depth = depth_map[idx];
   float3 idir = bvh_inverse_direction(ray);
 
   Intersection<float3> hit;
   hit.hit = 0;
-  hit.t = 1e30f;
+  depth = 1e30f;
   hit.triangle_index = -1;
 
-  float t_max = hit.t;
+  float t_max = depth;
 
   int stack[kMaxStackSize];
   int sp = 0;
@@ -230,9 +230,9 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
 
         if (intersect_triangle(ray, ray_origin, triangles[tri_id], &t, &u,
                                &v)) {
-          if (t < hit.t) {
+          if (t < depth) {
             hit.hit = 1;
-            hit.t = t;
+            depth = t;
             t_max = t;
             hit.triangle_index = tri_id;
             const float w = 1 - u - v;
@@ -282,19 +282,21 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
                                 const Triangle<float3> *triangles,
                                 const float3 *rays, const float3 ray_origin,
                                 const int ray_count,
-                                Intersection<float3> *out_hits) {
+                                Intersection<float3> *out_hits,
+                                float *depth_map) {
   // ---- 初始化 ----
 
   for (int i = 0; i < ray_count; i++) {
     auto ray = rays[i];
+    auto &depth = depth_map[i];
 
     float3 idir = bvh_inverse_direction_cpu(ray);
     Intersection<float3> hit;
     hit.hit = 0;
-    hit.t = 1e30f;
+    depth = 1e30f;
     hit.triangle_index = -1;
 
-    float t_max = hit.t;
+    float t_max = depth;
 
     int stack[kMaxStackSize];
     int sp = 0;
@@ -316,9 +318,9 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
 
           if (intersect_triangle_cpu(ray, ray_origin, triangles[tri_id], &t, &u,
                                      &v)) {
-            if (t < hit.t) {
+            if (t < depth) {
               hit.hit = 1;
-              hit.t = t;
+              depth = t;
               t_max = t; // 重要：更新裁剪距离
               hit.triangle_index = tri_id;
 
@@ -396,13 +398,12 @@ __global__ void view_direction_batch_kernel(const int width, const int height,
   dir_world = normalize(dir_world);
   out_rays[idx] = dir_world;
 }
-__global__ void intersect_brute_batch_kernel(const int width, const int height,
-                                             int tri_count, int node_count,
-                                             const BVHNode<float3> *d_nodes,
-                                             const Triangle<float3> *d_tris,
-                                             const float3 *d_rays,
-                                             const float3 ray_origin,
-                                             Intersection<float3> *out_hits) {
+__global__ void
+intersect_brute_batch_kernel(const int width, const int height, int tri_count,
+                             int node_count, const BVHNode<float3> *d_nodes,
+                             const Triangle<float3> *d_tris,
+                             const float3 *d_rays, const float3 ray_origin,
+                             Intersection<float3> *out_hits, float *depth_map) {
   // 这里是你之前实现的核心遍历逻辑，直接复制过来即可
   // 每个视线都执行一次暴力求交，验证intersect_triangle的正确性
   int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -421,6 +422,7 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
   }
 
   auto &ray = d_rays[tid];
+  auto &depth = depth_map[tid];
   float closest_t = 1e30f;
   int closest_tri_idx = -1;
   float best_u = 0.0f;
@@ -451,7 +453,7 @@ __global__ void intersect_brute_batch_kernel(const int width, const int height,
   const float3 hit_point = ray_origin + ray * closest_t;
   Intersection<float3> out;
   out.hit = 1;
-  out.t = closest_t;
+  depth = closest_t;
   out.triangle_index = closest_tri_idx;
   out.point = hit_point;
   out.normal = interp_n;
@@ -472,7 +474,8 @@ __global__ void batch_render_kernel(const Intersection<float3> *hits,
   if (hit.hit) {
     // 使用Hapke模型
     out_light_intensity[idx] =
-        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_config) * scene_light_intensity;
+        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_config) *
+        scene_light_intensity;
   } else {
     // 没有命中，返回负数光照
     out_light_intensity[idx] = 0.0f;

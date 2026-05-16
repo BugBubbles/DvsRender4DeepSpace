@@ -6,7 +6,8 @@ namespace dvs {
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float threshold_pos, const float threshold_neg,
-    float *last_log_intensity, Event *events, int *event_count) {
+    const float *depth_map, float *last_log_intensity, Event *events,
+    int *event_count) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
@@ -18,8 +19,8 @@ __global__ void batch_generate_events_kernel(
     if (last_log_intensity[idx] > -INFINITY) {
       last_log_intensity[idx] = -INFINITY;
       int pos = atomicAdd(event_count, 1);
-      events[pos] =
-          Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 0};
+      events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                          static_cast<int16_t>(y), 0, depth_map[idx]};
     }
     return;
   }
@@ -28,13 +29,13 @@ __global__ void batch_generate_events_kernel(
   if (last_log_intensity[idx] <= log_current - threshold_pos) {
     last_log_intensity[idx] = log_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 1};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 1, depth_map[idx]};
   } else if (last_log_intensity[idx] >= log_current + threshold_neg) {
     last_log_intensity[idx] = log_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 0};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 0, depth_map[idx]};
   }
 }
 
@@ -42,7 +43,7 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, float *refractory_map,
+    const float refractory_time, const float *depth_map, float *refractory_map,
     float *last_log_intensity, Event *events, int *event_count) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -58,14 +59,14 @@ __global__ void batch_generate_events_kernel(
   if (last_log_intensity[idx] <= log_current - threshold_pos_map[idx]) {
     last_log_intensity[idx] = log_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 1};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 1, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
   } else if (last_log_intensity[idx] >= log_current + threshold_neg_map[idx]) {
     last_log_intensity[idx] = log_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 0};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 0, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
   }
 }
@@ -75,9 +76,9 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float alpha, float *refractory_map,
-    float *last_log_intensity, float *last_voltage, Event *events,
-    int *event_count) {
+    const float refractory_time, const float alpha, const float *depth_map,
+    float *refractory_map, float *last_log_intensity, float *last_voltage,
+    Event *events, int *event_count) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
@@ -96,15 +97,15 @@ __global__ void batch_generate_events_kernel(
   if (last_log_intensity[idx] <= voltage_current - threshold_pos_map[idx]) {
     last_log_intensity[idx] = voltage_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 1};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 1, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
   } else if (last_log_intensity[idx] >=
              voltage_current + threshold_neg_map[idx]) {
     last_log_intensity[idx] = voltage_current;
     int pos = atomicAdd(event_count, 1);
-    events[pos] =
-        Event{timestamp, static_cast<int16_t>(x), static_cast<int16_t>(y), 0};
+    events[pos] = Event{timestamp, static_cast<int16_t>(x),
+                        static_cast<int16_t>(y), 0, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
   }
 }

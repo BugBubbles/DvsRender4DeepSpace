@@ -109,6 +109,8 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
   CUDA_CHECK(
       cudaMemset(d_last_log_intensity_, 0.0f, sizeof(float) * ray_count_),
       "Failed to initialize last log intensity buffer");
+  CUDA_CHECK(cudaMalloc(&d_depth_map_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for depth map");
   CUDA_CHECK(cudaMalloc(&d_events_, sizeof(Event) * ray_count_),
              "Failed to allocate device memory for events");
   CUDA_CHECK(cudaMalloc(&d_event_count_, sizeof(int)),
@@ -240,8 +242,9 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
   //     d_hits_);
   const int threads = 128; // 或 256
   const int blocks = (ray_count_ + threads - 1) / threads;
-  batch_intersect_kernel<<<blocks, threads>>>(
-      d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_, d_hits_);
+  batch_intersect_kernel<<<blocks, threads>>>(d_nodes_, root_index_, d_tris_,
+                                              d_rays_, ray_origin, ray_count_,
+                                              d_hits_, d_depth_map_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -328,8 +331,9 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
 #ifdef DEBUG
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
-  batch_intersect_kernel<<<blocks, threads>>>(
-      d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_, d_hits_);
+  batch_intersect_kernel<<<blocks, threads>>>(d_nodes_, root_index_, d_tris_,
+                                              d_rays_, ray_origin, ray_count_,
+                                              d_hits_, d_depth_map_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[1] += end_time - start_time;
@@ -382,22 +386,22 @@ __global__ void batch_generate_events_kernel(
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, alpha_, d_refractory_map_,
+      physic_config_.refractory_time, alpha_, d_depth_map_, d_refractory_map_,
       d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_);
 #else
   // 考虑噪声模型的事件仿真生成器
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, d_refractory_map_, d_last_log_intensity_,
-      d_events_, d_event_count_);
+      physic_config_.refractory_time, d_depth_map_, d_refractory_map_,
+      d_last_log_intensity_, d_events_, d_event_count_);
 #endif
 #else
   // 理想事件生成器，不考虑噪声与高通滤波
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
-      physic_config_.threshold_neg, d_last_log_intensity_, d_events_,
-      d_event_count_);
+      physic_config_.threshold_neg, d_depth_map_, d_last_log_intensity_,
+      d_events_, d_event_count_);
 #endif
 
 #ifdef DEBUG

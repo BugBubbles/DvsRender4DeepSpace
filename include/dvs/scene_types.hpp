@@ -39,7 +39,6 @@ template <typename float3> struct BVHNode {
 
 template <typename float3> struct Intersection {
   int hit = 0;
-  float t = -1.0f;
   int triangle_index = -1;
   float3 point;
   float3 normal;

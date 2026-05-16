@@ -31,13 +31,13 @@ namespace dvs {
  * @param rays 输入光线数组
  * @param ray_count 光线数量
  * @param out_hits 输出交点信息数组
+ * @param depth_map 输出深度图数组
  */
-__global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
-                                       int root_index,
-                                       const Triangle<float3> *triangles,
-                                       const float3 *rays,
-                                       const float3 ray_origin, int ray_count,
-                                       Intersection<float3> *out_hits);
+__global__ void
+batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
+                       const Triangle<float3> *triangles, const float3 *rays,
+                       const float3 ray_origin, int ray_count,
+                       Intersection<float3> *out_hits, float *depth_map);
 /**
  * @brief 批量生成视线方向
  * @param width 图像宽度
@@ -65,12 +65,14 @@ __global__ void view_direction_batch_kernel(const int width, const int height,
  * @param rays 输入光线数组
  * @param ray_count 光线数量
  * @param out_hits 输出交点信息数组
+ * @param depth_map 输出深度图数组
  */
 void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
                                 const Triangle<float3> *triangles,
                                 const float3 *rays, const float3 ray_origin,
                                 const int ray_count,
-                                Intersection<float3> *out_hits);
+                                Intersection<float3> *out_hits,
+                                float *depth_map);
 /**
  * @brief 批量渲染内核，根据交点信息计算光照强度
  * @param out_hits 输入交点信息数组
@@ -116,6 +118,10 @@ public:
     if (d_last_log_intensity_ != nullptr) {
       cudaFree(d_last_log_intensity_);
       d_last_log_intensity_ = nullptr;
+    }
+    if (d_depth_map_ != nullptr) {
+      cudaFree(d_depth_map_);
+      d_depth_map_ = nullptr;
     }
     if (d_events_ != nullptr) {
       cudaFree(d_events_);
@@ -180,6 +186,7 @@ private:
   SceneConfig scene_config_;
   // 上一帧的log强度，用于事件生成
   float *d_last_log_intensity_ = nullptr;
+  float *d_depth_map_ = nullptr;
 #ifdef ENABLE_PHYSIC_EFFECTS
   // 不应期图，避免过快生成事件
   float *d_refractory_map_ = nullptr;
