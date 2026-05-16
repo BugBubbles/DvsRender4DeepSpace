@@ -11,6 +11,7 @@ set(CMAKE_PREFIX_PATH "/usr/local;/usr;${CMAKE_PREFIX_PATH}")
 find_package(CUDAToolkit REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(OpenCV REQUIRED)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
@@ -45,6 +46,7 @@ target_link_libraries(dvs_core
     PUBLIC
         OpenMP::OpenMP_CXX
         Eigen3::Eigen
+        ${OpenCV_LIBS}
 )
 
 file (GLOB_RECURSE CUDA_SOURCES "src/cuda/*.cu")

@@ -66,7 +66,9 @@ struct PhysicConfig {
 // 场景配置参数
 struct SceneConfig {
   int frame_count;
-  float fps, imu_fps, time_resolution;
+  float fps, imu_fps, cam_fps;
+  float time_resolution;
+  int supersample_factor;
 };
 // Hapke模型参数
 struct HapkeConfig {

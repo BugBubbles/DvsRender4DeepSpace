@@ -19,7 +19,9 @@ scene:
   frame_count: 201
   fps: 24.0
   imu_fps: 200
+  cam_fps: 60
   time_resolution: 1e-5
+  supersample_factor: 16
 
 hapke:
   b: 0.24

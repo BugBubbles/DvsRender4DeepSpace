@@ -18,7 +18,7 @@ namespace {
 
 struct Options {
   std::string scene_dir;
-  std::string output_dir = "./";
+  std::string output_dir = "./output";
   std::string config_path = "./config/default.yaml";
   float end_time = std::numeric_limits<float>::max();
 };
@@ -110,12 +110,12 @@ int main(int argc, char **argv) {
     int root_index =
         dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
 
-    dvs::GpuRaycaster raycaster(scene, config, root_index);
+    dvs::DvsRayCaster raycaster(scene, config, root_index);
     std::filesystem::path output_dir(opts.output_dir);
     if (!std::filesystem::exists(output_dir)) {
       std::filesystem::create_directories(output_dir);
     }
-    std::string events_output_path = opts.output_dir + "/events.txt";
+    std::string events_output_path = opts.output_dir + "/events.bin";
     std::ofstream events_out(events_output_path, std::ios::binary);
     if (!events_out) {
       throw std::runtime_error("failed to open output file: " +

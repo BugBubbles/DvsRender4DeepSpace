@@ -30,7 +30,7 @@ __global__ void threshold_map_init_kernel(const int width, const int height,
   threshold_map[idx] = threshold * (1.0f + noise); // 添加噪声后的阈值
 }
 
-GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
+DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
                            const Config &config, const int root_index)
     : root_index_(root_index), hapke_config_(config.hapke),
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),
@@ -149,14 +149,14 @@ GpuRaycaster::GpuRaycaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
 #endif
 }
 
-void GpuRaycaster::initialize(const float frame_intensity) {
+void DvsRayCaster::initialize(const float frame_intensity) {
   // 初始化last_log_intensity为log(frame_intensity)，确保第一帧能正确生成事件
   float initial_log_intensity = std::log(frame_intensity);
   thrust::device_ptr<float> ptr(d_last_log_intensity_);
   thrust::fill(ptr, ptr + ray_count_, initial_log_intensity);
 }
 
-void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
+void DvsRayCaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
                                 int root) const {
   if (root < 0 || root >= static_cast<int>(nodes.size())) {
     throw std::runtime_error("BVH root index out of range");
@@ -212,7 +212,7 @@ void GpuRaycaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
             << ", leaves: " << leaf_count << ", internals: " << internal_count
             << std::endl;
 }
-void GpuRaycaster::render_main(const Vec3 &camera_origin,
+void DvsRayCaster::render_main(const Vec3 &camera_origin,
                                const Mat3 &camera_world, const Vec3 &light_dir,
                                const float light_intensity,
                                std::vector<float> &light_frame) {
@@ -250,11 +250,6 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
   err = cudaGetLastError();
   std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
 #endif
-  std::vector<Intersection<float3>> hits(static_cast<std::size_t>(ray_count_));
-  CUDA_CHECK(cudaMemcpy(hits.data(), d_hits_,
-                        sizeof(Intersection<float3>) * ray_count_,
-                        cudaMemcpyDeviceToHost),
-             "Failed to copy intersection results from device to host");
   cudaFree(d_camera_world);
   // 计算光照，使用Hapke模型
   float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
@@ -287,7 +282,7 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
 #endif
 }
 
-void GpuRaycaster::render_main(const Vec3 &camera_origin,
+void DvsRayCaster::render_main(const Vec3 &camera_origin,
                                const Mat3 &camera_world, const Vec3 &light_dir,
                                const float light_intensity,
                                const float current_time,
@@ -343,12 +338,6 @@ void GpuRaycaster::render_main(const Vec3 &camera_origin,
   err = cudaGetLastError();
   std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
 #endif
-  // std::vector<Intersection<float3>>
-  // hits(static_cast<std::size_t>(ray_count_));
-  // CUDA_CHECK(cudaMemcpy(hits.data(), d_hits_,
-  //                       sizeof(Intersection<float3>) * ray_count_,
-  //                       cudaMemcpyDeviceToHost),
-  //            "Failed to copy intersection results from device to host");
 
   // 计算光照，使用Hapke模型
   float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());

@@ -205,8 +205,14 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(scene_map, "scene", "imu_fps", scene.imu_fps, err,
                         safe_stof))
     return;
+  if (!extract_required(scene_map, "scene", "cam_fps", scene.cam_fps, err,
+                        safe_stof))
+    return;
   if (!extract_required(scene_map, "scene", "time_resolution",
                         scene.time_resolution, err, safe_stof))
+    return;
+  if (!extract_required(scene_map, "scene", "supersample_factor",
+                        scene.supersample_factor, err, safe_stoi))
     return;
 
   const auto &hapke_map = kv["hapke"];
