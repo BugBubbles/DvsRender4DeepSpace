@@ -175,6 +175,8 @@ CamRayCaster::CamRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
       "Failed to allocate device memory for light intensity step buffer");
   CUDA_CHECK(cudaMalloc(&d_depth_map_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for depth map");
+  CUDA_CHECK(cudaMalloc(&d_depth_map_step_, sizeof(float) * ray_count_),
+             "Failed to allocate device memory for depth map step buffer");
   CUDA_CHECK(cudaMalloc(&d_rand_states_, sizeof(curandState) * ray_count_),
              "Failed to allocate device memory for random states");
   // 初始化随机状态
@@ -243,7 +245,8 @@ void CamRayCaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
 void CamRayCaster::render_main(const Vec3 &camera_origin,
                                const Mat3 &camera_world, const Vec3 &light_dir,
                                const float light_intensity,
-                               std::vector<float> &light_frame) {
+                               std::vector<float> &light_frame,
+                               std::vector<float> &depth_map) {
 #ifdef DEBUG
   auto err = cudaGetLastError();
 #endif
@@ -281,7 +284,7 @@ void CamRayCaster::render_main(const Vec3 &camera_origin,
 #endif
       batch_intersect_kernel<<<blocks, threads>>>(
           d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_,
-          d_hits_, d_depth_map_);
+          d_hits_, d_depth_map_step_);
 #ifdef DEBUG
       cudaDeviceSynchronize();
       err = cudaGetLastError();
@@ -300,16 +303,24 @@ void CamRayCaster::render_main(const Vec3 &camera_origin,
       // 将当前超采样结果累加到总的光强缓冲中
       batch_image_sum_kernel<<<blocks, threads>>>(ray_count_, d_lights_step_,
                                                   d_lights_);
+      batch_image_sum_kernel<<<blocks, threads>>>(ray_count_, d_depth_map_step_,
+                                                  d_depth_map_);
     }
   }
   // 计算平均光强
   batch_image_mean_kernel<<<blocks, threads>>>(
       ray_count_, supersample_factor_ * supersample_factor_, d_lights_);
+  batch_image_mean_kernel<<<blocks, threads>>>(
+      ray_count_, supersample_factor_ * supersample_factor_, d_depth_map_);
   // 将结果从GPU复制回CPU
   light_frame.resize(static_cast<std::size_t>(ray_count_));
+  depth_map.resize(static_cast<std::size_t>(ray_count_));
   CUDA_CHECK(cudaMemcpy(light_frame.data(), d_lights_,
                         sizeof(float) * ray_count_, cudaMemcpyDeviceToHost),
              "Failed to copy light frame from device to host");
+  CUDA_CHECK(cudaMemcpy(depth_map.data(), d_depth_map_,
+                        sizeof(float) * ray_count_, cudaMemcpyDeviceToHost),
+             "Failed to copy depth map from device to host");
 #ifdef DEBUG
   // 输出调试信息
   std::ofstream ofs("debug_output.txt");

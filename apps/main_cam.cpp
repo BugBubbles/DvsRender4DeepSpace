@@ -3,12 +3,13 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
-#include <opencv2/core/base.hpp>
 #include <opencv2/opencv.hpp>
 #include <stdexcept>
 #include <string>
+#include <sys/types.h>
 
 #include "bvh/build.h"
+#include "dvs/blenderize.hpp"
 #include "dvs/dvs_base.hpp"
 #include "dvs/progress.hpp"
 #include "dvs/raycast.hpp"
@@ -113,9 +114,13 @@ int main(int argc, char **argv) {
         dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
 
     dvs::CamRayCaster raycaster(scene, config, root_index);
-    std::filesystem::path output_dir(opts.output_dir + "/images");
-    if (!std::filesystem::exists(output_dir)) {
-      std::filesystem::create_directories(output_dir);
+    std::filesystem::path image_output_dir(opts.output_dir + "/images");
+    std::filesystem::path depth_output_dir(opts.output_dir + "/depth");
+    if (!std::filesystem::exists(image_output_dir)) {
+      std::filesystem::create_directories(image_output_dir);
+    }
+    if (!std::filesystem::exists(depth_output_dir)) {
+      std::filesystem::create_directories(depth_output_dir);
     }
 
     std::size_t total_images = 0;
@@ -130,7 +135,12 @@ int main(int argc, char **argv) {
                                                    //
     float next_write_time = start_time;
     const float write_interval = 1.0f / config.scene.cam_fps;
-    std::vector<float> light_frame(config.camera.width * config.camera.height);
+    std::vector<float> light_frame_float(config.camera.width *
+                                         config.camera.height);
+    std::vector<float> depth_frame(config.camera.width * config.camera.height);
+
+    std::vector<u_int8_t> light_frame_uint8(
+        config.camera.width * config.camera.height, 4);
 
     for (size_t step = 0; step < total_steps; ++step) {
       float current_time = start_time + step * write_interval;
@@ -140,7 +150,7 @@ int main(int argc, char **argv) {
       dvs::Vec3 light_dir = state.light_direction;
       float light_intensity = state.light_intensity;
       raycaster.render_main(camera_origin, camera_world, light_dir,
-                            light_intensity, light_frame);
+                            light_intensity, light_frame_float, depth_frame);
 
       // 将events中的事件移动到events_buffer中，清空events以便下一次使用
       std::move(events.begin(), events.end(),
@@ -148,15 +158,21 @@ int main(int argc, char **argv) {
       events.clear();
       // 输出当前渲染所得相机图像，精度为9位小数，以cam_fps频率输出
       // 使用OpenCV将light_frame保存为图像
-      std::string filename =
-          output_dir / (std::to_string(current_time) + ".png");
-      cv::Mat img(config.camera.height, config.camera.width, CV_32FC1,
-                  light_frame.data());
-      // 归一化图像到0-1范围
-      cv::normalize(img, img, 0.0f, 255, cv::NORM_MINMAX);
-      cv::Mat img8;
-      img.convertTo(img8, CV_8UC1);
-      cv::imwrite(filename, img8);
+      std::string image_name =
+          image_output_dir / (std::to_string(current_time) + ".png");
+      std::string depth_name =
+          depth_output_dir / (std::to_string(current_time) + ".tif");
+      dvs::render_float_to_png_bytes(light_frame_float.data(),
+                                     config.camera.width, config.camera.height,
+                                     0.0, light_frame_uint8);
+      cv::Mat img_uint8(config.camera.height, config.camera.width, CV_8U,
+                        light_frame_uint8.data());
+      cv::Mat depth_img(config.camera.height, config.camera.width, CV_32F,
+                        depth_frame.data());
+      // // 归一化图像到0-1范围
+      cv::imwrite(image_name, img_uint8);
+      cv::imwrite(depth_name, depth_img);
+
       total_images++;
       bar.update();
     }
