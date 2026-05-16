@@ -63,11 +63,4 @@ target_link_libraries(dvs_cuda
         Eigen3::Eigen
 )
 
-add_executable(dvs_simulator
-    apps/simulator_main.cpp
-)
-target_link_libraries(dvs_simulator
-    PRIVATE
-        dvs_core
-        dvs_cuda
-)
+add_subdirectory(apps)

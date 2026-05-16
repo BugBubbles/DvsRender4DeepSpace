@@ -18,7 +18,7 @@ namespace {
 
 struct Options {
   std::string scene_dir;
-  std::string output_path = "events.bin";
+  std::string output_dir = "./";
   std::string config_path = "./config/default.yaml";
   float end_time = std::numeric_limits<float>::max();
 };
@@ -26,8 +26,7 @@ struct Options {
 void print_usage(const char *prog) {
   std::cout << "Usage: " << prog << " --scene_dir <bundle_dir> [options]\n"
             << "Options:\n"
-            << "  --output <path>            output events file (default: "
-               "events.txt)\n"
+            << "  --output <path>            output events file (default: ./)\n"
             << "  --end-time <seconds>       end time for simulation (default: "
                "until end of scene)\n"
             << "--config <path>             path to YAML config file "
@@ -60,7 +59,7 @@ Options parse_args(int argc, char **argv) {
       opts.end_time =
           parse_float_arg("--end-time", require_value("--end-time"));
     } else if (arg == "--output") {
-      opts.output_path = require_value("--output");
+      opts.output_dir = require_value("--output");
     } else if (arg == "--config") {
       opts.config_path = require_value("--config");
     } else if (arg == "--help" || arg == "-h") {
@@ -112,12 +111,15 @@ int main(int argc, char **argv) {
         dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
 
     dvs::GpuRaycaster raycaster(scene, config, root_index);
-
-    std::ofstream events_out(opts.output_path, std::ios::binary);
-    std::ofstream traj_out("groundtruth.txt");
+    std::filesystem::path output_dir(opts.output_dir);
+    if (!std::filesystem::exists(output_dir)) {
+      std::filesystem::create_directories(output_dir);
+    }
+    std::string events_output_path = opts.output_dir + "/events.txt";
+    std::ofstream events_out(events_output_path, std::ios::binary);
     if (!events_out) {
       throw std::runtime_error("failed to open output file: " +
-                               opts.output_path);
+                               events_output_path);
     }
 
     std::size_t total_events = 0;
@@ -167,8 +169,6 @@ int main(int argc, char **argv) {
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
       camera_origin = state.position;
       camera_world = state.orientation;
-      linear_velocity = state.linear_velocity;
-      angular_velocity = state.angular_velocity;
       light_dir = state.light_direction;
       light_intensity = state.light_intensity;
 
@@ -185,9 +185,6 @@ int main(int argc, char **argv) {
       // 输出当前时间和相机速度作为轨迹信息，精度为9位小数，以imu_fps频率输出
       if (current_time >= next_write_time) {
         next_write_time += write_interval;
-        traj_out << std::fixed << std::setprecision(9) << current_time << " "
-                 << linear_velocity.transpose() << " "
-                 << angular_velocity.transpose() << std::endl;
 #ifdef DEBUG
         time_start = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
@@ -211,7 +208,7 @@ int main(int argc, char **argv) {
     }
 
     std::cout << "Finished. Wrote " << total_events << " events to "
-              << opts.output_path << "\n";
+              << opts.output_dir << "\n";
 #ifdef DEBUG
     std::cout << "Time for ray casting: " << time_records[0] << " seconds\n";
     std::cout << "Time for intersecting:" << time_records[1] << " seconds\n";
@@ -221,7 +218,6 @@ int main(int argc, char **argv) {
     std::cout << "Time for writing events: " << time_records[4] << " seconds\n";
 #endif
     events_out.close();
-    traj_out.close();
     return 0;
   } catch (const std::exception &ex) {
     std::cerr << "Error: " << ex.what() << "\n";
