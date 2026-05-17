@@ -1,10 +1,3 @@
-/**
-类似于Blender的图像输出函数集，将光强图值转换为图像像素值，并提供一些相关的功能。
-SPDX-FileCopyrightText: 2024 Blender Authors
- *
- * SPDX-License-Identifier: GPL-2.0-or-later
-*/
-
 #pragma once
 #include <algorithm>
 #include <cmath>

@@ -214,6 +214,9 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(scene_map, "scene", "supersample_factor",
                         scene.supersample_factor, err, safe_stoi))
     return;
+  if (!extract_required(scene_map, "scene", "blur_resolution", scene.blur_resolution, err,
+                        safe_stof))
+    return;
 
   const auto &hapke_map = kv["hapke"];
   if (!extract_required(hapke_map, "hapke", "b", hapke.b, err, safe_stof))

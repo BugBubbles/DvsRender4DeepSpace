@@ -1,4 +1,4 @@
-intrinsic:
+intrinsic:                 # 事件相机、普通相机、模糊相机和深度相机共享
   width: 512
   height: 512
   fx: 355.55555555555554
@@ -6,7 +6,7 @@ intrinsic:
   cx: 256.0
   cy: 256.0
 
-physic:
+physic:                   # 这些参数都只对事件相机有效
   threshold_pos: 0.3
   threshold_neg: 0.3
   threshold_noise: 0.0
@@ -17,13 +17,14 @@ physic:
 
 scene:
   frame_count: 201
-  fps: 24.0
-  imu_fps: 200
-  cam_fps: 60
-  time_resolution: 1e-5
-  supersample_factor: 16
+  fps: 24.0              # 场景轨迹fps，对应当前仿真物理世界总时长 = frame_count / fps
+  imu_fps: 200           # IMU输出fps 
+  cam_fps: 10            # 相机输出fps
+  time_resolution: 1e-5  # 仅对事件相机有效，事件相机的时间分辨率
+  supersample_factor: 16 # 对应Blender的采样次数，共计超采样平方次
+  blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
 
-hapke:
+hapke:                   # Hapke模糊参数，非必要不修改
   b: 0.24
   c: 0.305
   hS: 0.08

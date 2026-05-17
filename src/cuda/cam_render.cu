@@ -337,4 +337,92 @@ void CamRayCaster::render_main(const Vec3 &camera_origin,
   cudaFree(d_camera_world);
 }
 
+void CamBlurRayCaster::render_main(const Vec3 &camera_origin,
+                                   const Mat3 &camera_world,
+                                   const Vec3 &light_dir,
+                                   const float light_intensity,
+                                   std::vector<float> &light_frame) {
+#ifdef DEBUG
+  auto err = cudaGetLastError();
+#endif
+  float3 ray_origin =
+      make_float3(camera_origin.x(), camera_origin.y(), camera_origin.z());
+  float *d_camera_world;
+  CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9),
+             "Failed to allocate device memory for camera world matrix");
+  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world.data(), sizeof(float) * 9,
+                        cudaMemcpyHostToDevice),
+             "Failed to copy camera world matrix from host to device");
+  CUDA_CHECK(cudaMemset(d_lights_, 0, sizeof(float) * ray_count_),
+             "Failed to clear light intensity buffer on device");
+  // 生成视线
+  const dim3 block_size(16, 16);
+  const dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+                       (height_ + block_size.y - 1) / block_size.y);
+  const int threads = 128; // 或 256
+  const int blocks = (ray_count_ + threads - 1) / threads;
+
+  const float3 d_light_dir =
+      make_float3(light_dir.x(), light_dir.y(), light_dir.z());
+  // 执行supersample_factor_倍的超采样，每个像素生成supersample_factor_^2条视线
+  for (int sx = 0; sx < supersample_factor_; ++sx) {
+    for (int sy = 0; sy < supersample_factor_; ++sy) {
+      // 生成超采样的视线
+      view_direction_batch_kernel<<<grid_size, block_size>>>(
+          width_, height_, sx, sy, supersample_factor_, fx_, fy_, cx_, cy_,
+          d_camera_world, ray_origin, d_rays_, d_rand_states_);
+#ifdef DEBUG
+      cudaDeviceSynchronize();
+      err = cudaGetLastError();
+      std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err)
+                << "\n";
+#endif
+      batch_intersect_kernel<<<blocks, threads>>>(
+          d_nodes_, root_index_, d_tris_, d_rays_, ray_origin, ray_count_,
+          d_hits_, d_depth_map_step_);
+#ifdef DEBUG
+      cudaDeviceSynchronize();
+      err = cudaGetLastError();
+      std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err)
+                << "\n";
+#endif
+      // 计算光照，使用Hapke模型
+      batch_render_kernel<<<blocks, threads>>>(
+          d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity,
+          hapke_config_, ray_count_, d_lights_step_);
+#ifdef DEBUG
+      cudaDeviceSynchronize();
+      err = cudaGetLastError();
+      std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+#endif
+      // 将当前超采样结果累加到总的光强缓冲中
+      batch_image_sum_kernel<<<blocks, threads>>>(ray_count_, d_lights_step_,
+                                                  d_lights_);
+      batch_image_sum_kernel<<<blocks, threads>>>(ray_count_, d_depth_map_step_,
+                                                  d_depth_map_);
+    }
+  }
+  // 计算平均光强
+  batch_image_mean_kernel<<<blocks, threads>>>(
+      ray_count_, supersample_factor_ * supersample_factor_, d_lights_);
+  // 将结果从GPU复制回CPU
+  light_frame.resize(static_cast<std::size_t>(ray_count_));
+  CUDA_CHECK(cudaMemcpy(light_frame.data(), d_lights_,
+                        sizeof(float) * ray_count_, cudaMemcpyDeviceToHost),
+             "Failed to copy light frame from device to host");
+#ifdef DEBUG
+  // 输出调试信息
+  std::ofstream ofs("debug_output.txt");
+  for (int y = 0; y < height_; ++y) {
+    for (int x = 0; x < width_; ++x) {
+      int idx = y * width_ + x;
+      ofs << "Pixel (" << x << "," << y << "): light=" << light_frame[idx]
+          << std::endl;
+      ofs.flush();
+    }
+  }
+  ofs.close();
+#endif
+  cudaFree(d_camera_world);
+}
 } // namespace dvs

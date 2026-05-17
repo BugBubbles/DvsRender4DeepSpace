@@ -131,16 +131,13 @@ int main(int argc, char **argv) {
         std::round((end_time - start_time) * config.scene.cam_fps));
 
     dvs::ProgressBar bar(total_steps);
-    std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
-                                                   //
-    float next_write_time = start_time;
     const float write_interval = 1.0f / config.scene.cam_fps;
     std::vector<float> light_frame_float(config.camera.width *
                                          config.camera.height);
     std::vector<float> depth_frame(config.camera.width * config.camera.height);
 
-    std::vector<u_int8_t> light_frame_uint8(
-        config.camera.width * config.camera.height, 4);
+    std::vector<u_int8_t> light_frame_uint8(config.camera.width *
+                                            config.camera.height);
 
     for (size_t step = 0; step < total_steps; ++step) {
       float current_time = start_time + step * write_interval;
@@ -152,10 +149,6 @@ int main(int argc, char **argv) {
       raycaster.render_main(camera_origin, camera_world, light_dir,
                             light_intensity, light_frame_float, depth_frame);
 
-      // 将events中的事件移动到events_buffer中，清空events以便下一次使用
-      std::move(events.begin(), events.end(),
-                std::back_inserter(events_buffer));
-      events.clear();
       // 输出当前渲染所得相机图像，精度为9位小数，以cam_fps频率输出
       // 使用OpenCV将light_frame保存为图像
       std::string image_name =

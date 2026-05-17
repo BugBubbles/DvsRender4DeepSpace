@@ -275,7 +275,7 @@ public:
                    std::vector<float> &depth_map);
   void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
-private:
+protected:
   int node_count_ = 0;
   int tri_count_ = 0;
   int root_index_ = 0;
@@ -299,5 +299,13 @@ private:
   mutable float *d_depth_map_ = nullptr;
   mutable float *d_depth_map_step_ = nullptr;
   mutable std::size_t ray_capacity_ = 0;
+};
+
+class CamBlurRayCaster : public CamRayCaster {
+public:
+  using CamRayCaster::CamRayCaster;
+  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
+                   const Vec3 &light_dir, const float light_intensity,
+                   std::vector<float> &light_frame);
 };
 } // namespace dvs
