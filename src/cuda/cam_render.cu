@@ -23,12 +23,12 @@ __global__ void view_direction_batch_kernel(
   int idx = (y * width + x);
 
   // 计算超采样偏移
-  curandState local_state = rand_states[idx];
+  // curandState local_state = [idx];
   float offset_x =
-      (delta_x + curand_uniform(&local_state)) / supersample_factor;
+      (delta_x + curand_uniform(rand_states + idx)) / supersample_factor;
   float offset_y =
-      (delta_y + curand_uniform(&local_state)) / supersample_factor;
-  rand_states[idx] = local_state;
+      (delta_y + curand_uniform(rand_states + idx)) / supersample_factor;
+  // rand_states[idx] = local_state;
 
   // 计算像素中心的视线方向
   float px = (x + offset_x - cx - 0.5) / fx;

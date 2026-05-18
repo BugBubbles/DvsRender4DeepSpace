@@ -58,14 +58,14 @@ __global__ void batch_generate_events_kernel(
   float current = intensity_frame[idx] + dark_current;
 
   // 模拟散粒噪声
-  curandState local_state = rand_states[idx];
+  // curandState local_state = rand_states[idx];
   float shot_noise_prob =
       1 - expf(-shot_noise_freq *
                (timestamp - refractory_map[idx])); // 转换为每毫秒的概率
-  if (curand_uniform(&local_state) < shot_noise_prob) {
+  if (curand_uniform(rand_states + idx) < shot_noise_prob) {
     current += shot_intensity;
   }
-  rand_states[idx] = local_state;
+  // rand_states[idx] = local_state;
   // 光强转对数值
   float log_current = logf(current);
   if (last_log_intensity[idx] <= log_current - threshold_pos_map[idx]) {
@@ -103,14 +103,14 @@ __global__ void batch_generate_events_kernel(
   float current = intensity_frame[idx] + dark_current;
 
   // 模拟散粒噪声
-  curandState local_state = rand_states[idx];
+  // curandState local_state = rand_states[idx];
   float shot_noise_prob =
       1 - expf(-shot_noise_freq *
                (timestamp - refractory_map[idx])); // 转换为每毫秒的概率
-  if (curand_uniform(&local_state) < shot_noise_prob) {
+  if (curand_uniform(rand_states + idx) < shot_noise_prob) {
     current += shot_intensity;
   }
-  rand_states[idx] = local_state;
+  // rand_states[idx] = local_state;
   // 光强转对数值
   float log_current = logf(current);
   // 高通滤波
