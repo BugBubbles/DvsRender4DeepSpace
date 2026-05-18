@@ -145,6 +145,13 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
              "Failed to initialize refractory map");
   alpha_ = std::exp(-config.scene.time_resolution /
                     physic_config_.hpf_time_constant);
+  CUDA_CHECK(cudaMalloc(&d_rand_states_, sizeof(curandState) * ray_count_),
+             "Failed to allocate device memory for random states");
+  // 初始化随机状态
+  const int threads = 128;
+  const int blocks = (ray_count_ + threads - 1) / threads;
+  unsigned seed = static_cast<unsigned>(std::time(nullptr));
+  init_rand_states<<<blocks, threads>>>(d_rand_states_, ray_count_, seed);
 #endif
 #endif
 }
@@ -375,15 +382,18 @@ __global__ void batch_generate_events_kernel(
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, alpha_, d_depth_map_, d_refractory_map_,
-      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_);
+      physic_config_.refractory_time, alpha_, physic_config_.shot_noise_freq,
+      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
+      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_,
+      d_rand_states_);
 #else
   // 考虑噪声模型的事件仿真生成器
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, d_depth_map_, d_refractory_map_,
-      d_last_log_intensity_, d_events_, d_event_count_);
+      physic_config_.refractory_time, physic_config_.shot_noise_freq,
+      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
+      d_last_log_intensity_, d_events_, d_event_count_, d_rand_states_);
 #endif
 #else
   // 理想事件生成器，不考虑噪声与高通滤波

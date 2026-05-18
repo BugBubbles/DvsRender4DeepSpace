@@ -9,19 +9,6 @@
 #include <thrust/fill.h>
 
 namespace dvs {
-/**
- * @brief 初始化每条光线的随机状态，用于超采样时生成随机偏移
- * @param states 每条光线对应的随机状态数组
- * @param count 光线的总数量（即像素数量）
- * @param seed 随机数生成的种子
- */
-__global__ void init_rand_states(curandState *states, int count,
-                                 unsigned seed) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < count) {
-    curand_init(seed, idx, 0, &states[idx]);
-  }
-}
 
 __global__ void view_direction_batch_kernel(
     const int width, const int height, const int delta_x, const int delta_y,

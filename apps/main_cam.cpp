@@ -162,7 +162,8 @@ int main(int argc, char **argv) {
                         light_frame_uint8.data());
       cv::Mat depth_img(config.camera.height, config.camera.width, CV_32F,
                         depth_frame.data());
-      // // 归一化图像到0-1范围
+      cv::medianBlur(depth_img, depth_img, 3); // 3x3 中值滤波
+      // 归一化图像到0-1范围
       cv::imwrite(image_name, img_uint8);
       cv::imwrite(depth_name, depth_img);
 

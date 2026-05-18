@@ -25,6 +25,13 @@
 
 namespace dvs {
 /**
+ * @brief 初始化每条光线的随机状态，用于超采样时生成随机偏移
+ * @param states 每条光线对应的随机状态数组
+ * @param count 光线的总数量（即像素数量）
+ * @param seed 随机数生成的种子
+ */
+__global__ void init_rand_states(curandState *states, int count, unsigned seed);
+/**
  * @brief 批量光线求交
  * @param nodes BVH节点数组
  * @param root_index BVH根节点索引
@@ -158,6 +165,10 @@ public:
       cudaFree(d_last_voltage_);
       d_last_voltage_ = nullptr;
     }
+    if (d_rand_states_ != nullptr) {
+      cudaFree(d_rand_states_);
+      d_rand_states_ = nullptr;
+    }
 #endif
 #endif
     node_count_ = 0;
@@ -199,11 +210,10 @@ private:
   float *d_refractory_map_ = nullptr;
   float *d_threshold_pos_map_ = nullptr;
   float *d_threshold_neg_map_ = nullptr;
-#endif
-#ifdef ENABLE_PHYSIC_EFFECTS
 #ifdef ENABLE_HIGH_PASS_FILTER
-  float *d_last_voltage_ = nullptr;
+  mutable float *d_last_voltage_ = nullptr;
   float alpha_;
+  mutable curandState *d_rand_states_ = nullptr;
 #endif
 #endif
   // 渲染相关参数
