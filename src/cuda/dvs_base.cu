@@ -170,7 +170,7 @@ __global__ void batch_generate_events_kernel(
     last_log_intensity[idx] = voltage_current;
     int pos = atomicAdd(event_count, 1);
     // 统计第y行的事件数量
-    event_count_row[y] = atomicAdd(event_count_row + y, 1);
+    atomicAdd(event_count_row + y, 1);
     events[pos] = Event{timestamp, static_cast<int16_t>(x),
                         static_cast<int16_t>(y), 1, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
@@ -179,7 +179,7 @@ __global__ void batch_generate_events_kernel(
     last_log_intensity[idx] = voltage_current;
     int pos = atomicAdd(event_count, 1);
     // 统计第y行的事件数量
-    event_count_row[y] = atomicAdd(event_count_row + y, 1);
+    atomicAdd(event_count_row + y, 1);
     events[pos] = Event{timestamp, static_cast<int16_t>(x),
                         static_cast<int16_t>(y), 0, depth_map[idx]};
     refractory_map[idx] = timestamp + refractory_time;
@@ -192,7 +192,7 @@ void row_delay_buffer(const int height, const int *event_count_row,
   // 上一帧产生事件的最后一行索引，当前帧应当从它的下一行开始（如有事件产生》
   // 循环遍历第一行
   int request_count = 0; // 统计请求次数，即有事件产生的行数
-  int current_row_idx;
+  int current_row_idx = last_row_idx[0];
   for (int y = 0; y < height; ++y) {
     int row_idx = (y + last_row_idx[0] + 1) % height; // 当前行索引
     if (event_count_row[row_idx] > 0) {

@@ -178,14 +178,6 @@ public:
       cudaFree(d_delay_row_);
       d_delay_row_ = nullptr;
     }
-    if (h_event_count_row_ != nullptr) {
-      free(h_event_count_row_);
-      h_event_count_row_ = nullptr;
-    }
-    if (h_delay_row_ != nullptr) {
-      free(h_delay_row_);
-      h_delay_row_ = nullptr;
-    }
 #endif
 #endif
 #endif
@@ -235,8 +227,8 @@ private:
 #ifdef ENABLE_AER_DELAY
   int *d_event_count_row_ = nullptr;
   float *d_delay_row_ = nullptr;
-  int *h_event_count_row_ = nullptr;
-  float *h_delay_row_ = nullptr;
+  std::vector<int> h_event_count_row_;
+  std::vector<float> h_delay_row_;
   int last_row_index_;
   float unit_row_delay_;
 #endif

@@ -143,8 +143,12 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
              "Failed to allocate device memory for refractory map");
   CUDA_CHECK(cudaMemset(d_last_voltage_, 0.0f, sizeof(float) * ray_count_),
              "Failed to initialize refractory map");
-  alpha_ = std::exp(-config.scene.time_resolution /
-                    physic_config_.hpf_time_constant);
+  if (physic_config_.hpf_time_constant <= 1e-8) {
+    alpha_ = 1.0f;
+  } else {
+    alpha_ = std::exp(-config.scene.time_resolution /
+                      physic_config_.hpf_time_constant);
+  }
   CUDA_CHECK(cudaMalloc(&d_rand_states_, sizeof(curandState) * ray_count_),
              "Failed to allocate device memory for random states");
   // 初始化随机状态
@@ -157,8 +161,8 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
              "Failed to allocate device memory for event count per row");
   CUDA_CHECK(cudaMalloc(&d_delay_row_, sizeof(float) * height_),
              "Failed to initialize device delay row buffer");
-  h_event_count_row_ = new int[height_];
-  h_delay_row_ = new float[height_];
+  h_event_count_row_.reserve(static_cast<std::size_t>(height_));
+  h_delay_row_.reserve(static_cast<std::size_t>(height_));
   last_row_index_ = -1;
 
   unit_row_delay_ = 1 / physic_config_.readout_bandwidth;
@@ -400,14 +404,15 @@ __global__ void batch_generate_events_kernel(
       d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_row_,
       d_event_count_, d_rand_states_);
 
-  CUDA_CHECK(cudaMemcpy(h_event_count_row_, d_event_count_row_,
+  CUDA_CHECK(cudaMemcpy(h_event_count_row_.data(), d_event_count_row_,
                         sizeof(int) * height_, cudaMemcpyDeviceToHost),
              "Failed to copy event count per row from device to host");
-  row_delay_buffer(height_, h_event_count_row_, unit_row_delay_,
-                   physic_config_.readout_latency, h_delay_row_, &last_row_index_);
+  row_delay_buffer(height_, h_event_count_row_.data(), unit_row_delay_,
+                   physic_config_.readout_latency, h_delay_row_.data(),
+                   &last_row_index_);
 
-  CUDA_CHECK(cudaMemcpy(d_delay_row_, h_delay_row_, sizeof(float) * height_,
-                        cudaMemcpyHostToDevice),
+  CUDA_CHECK(cudaMemcpy(d_delay_row_, h_delay_row_.data(),
+                        sizeof(float) * height_, cudaMemcpyHostToDevice),
              "Failed to copy updated delay row from host to device");
   batch_aer_kernel<<<blocks, threads>>>(height_, d_events_, d_delay_row_);
 #endif

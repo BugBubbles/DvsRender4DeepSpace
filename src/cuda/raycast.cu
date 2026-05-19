@@ -5,11 +5,11 @@
 #include "dvs/raycast.hpp"
 #include "dvs/scene_types.hpp"
 
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
 #include <stdexcept>
 #include <utility>
 #include <vector>
-#include <curand_kernel.h>
-#include <cuda_runtime.h>
 #include <vector_functions.h>
 
 namespace dvs {
@@ -18,7 +18,7 @@ __global__ void init_rand_states(curandState *states, int count,
                                  unsigned seed) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < count) {
-    curand_init(seed, idx, 0, &states[idx]);
+    curand_init(seed, idx, 0, states + idx);
   }
 }
 

@@ -25,9 +25,7 @@ void print_usage(const char *prog) {
   std::cout << "Usage: " << prog << " --scene_dir <bundle_dir> [options]\n"
             << "Options:\n"
             << "  --output <path>            output directory (default:  ./)\n"
-            << "  --end-time <seconds>       end time for simulation (default: "
-               "until end of scene)\n"
-            << "--config <path>             path to YAML config file "
+            << "  --config <path>            path to YAML config file "
             << std::endl;
 }
 
@@ -53,9 +51,6 @@ Options parse_args(int argc, char **argv) {
 
     if (arg == "--scene_dir") {
       opts.scene_dir = require_value("--scene_dir");
-    } else if (arg == "--end-time") {
-      opts.end_time =
-          parse_float_arg("--end-time", require_value("--end-time"));
     } else if (arg == "--output") {
       opts.output_dir = require_value("--output");
     } else if (arg == "--config") {
@@ -117,7 +112,9 @@ int main(int argc, char **argv) {
     motion_out << "#ts vx vy vz wx wy wz" << std::endl;
     pose_out << "#ts x y z qx qy qz qw" << std::endl;
 
-    float end_time = std::min(opts.end_time, scene.frames.back().timestamp);
+    size_t frame_count = std::min(
+        scene.frames.size(), static_cast<size_t>(config.scene.frame_count));
+    float end_time = scene.frames[frame_count - 1].timestamp;
     float start_time = scene.frames.front().timestamp;
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) / config.scene.time_resolution));
@@ -148,8 +145,8 @@ int main(int argc, char **argv) {
                    << linear_velocity.transpose() << " "
                    << angular_velocity.transpose() << std::endl;
         pose_out << std::fixed << std::setprecision(9) << current_time
-                 << camera_origin.transpose() << " " << quat.x() << " " << quat.y()
-                 << " " << quat.z() << " " << quat.w() << std::endl;
+                 << camera_origin.transpose() << " " << quat.x() << " "
+                 << quat.y() << " " << quat.z() << " " << quat.w() << std::endl;
       }
       total_trajs++;
       bar.update();
