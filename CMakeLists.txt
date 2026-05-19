@@ -29,6 +29,12 @@ else()
     warning("High-pass filter is disabled. To use high-pass filter characteristic, ENABLE_PHYSIC_EFFECTS option is needed first.")
 endif()
 
+option(ENABLE_AER_DELAY "Enable AER delay for simulating the transmission delay of events" ON)
+if (ENABLE_PHYSIC_EFFECTS AND ENABLE_AER_DELAY AND ENABLE_HIGH_PASS_FILTER)
+    add_compile_definitions(ENABLE_AER_DELAY)
+else()
+    warning("AER delay is disabled. To use AER delay characteristic, both ENABLE_PHYSIC_EFFECTS and ENABLE_HIGH_PASS_FILTER options are needed first.")
+endif()
 
 file(GLOB BVH_SOURCES "src/bvh/*.cpp")
 file(GLOB BASIC_SOURCES "src/*.cpp")

@@ -169,6 +169,24 @@ public:
       cudaFree(d_rand_states_);
       d_rand_states_ = nullptr;
     }
+#ifdef ENABLE_AER_DELAY
+    if (d_event_count_row_ != nullptr) {
+      cudaFree(d_event_count_row_);
+      d_event_count_row_ = nullptr;
+    }
+    if (d_delay_row_ != nullptr) {
+      cudaFree(d_delay_row_);
+      d_delay_row_ = nullptr;
+    }
+    if (h_event_count_row_ != nullptr) {
+      free(h_event_count_row_);
+      h_event_count_row_ = nullptr;
+    }
+    if (h_delay_row_ != nullptr) {
+      free(h_delay_row_);
+      h_delay_row_ = nullptr;
+    }
+#endif
 #endif
 #endif
     node_count_ = 0;
@@ -214,6 +232,14 @@ private:
   mutable float *d_last_voltage_ = nullptr;
   float alpha_;
   mutable curandState *d_rand_states_ = nullptr;
+#ifdef ENABLE_AER_DELAY
+  int *d_event_count_row_ = nullptr;
+  float *d_delay_row_ = nullptr;
+  int *h_event_count_row_ = nullptr;
+  float *h_delay_row_ = nullptr;
+  int last_row_index_;
+  float unit_row_delay_;
+#endif
 #endif
 #endif
   // 渲染相关参数

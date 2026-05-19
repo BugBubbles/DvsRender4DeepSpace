@@ -65,8 +65,7 @@ struct PhysicConfig {
   // 散料噪声参数
   float shot_noise_freq, shot_intensity;
   // AER读出延迟参数
-  int readout_bandwidth;
-  float readout_latency;
+  float readout_bandwidth, readout_latency;
 };
 // 场景配置参数
 struct SceneConfig {

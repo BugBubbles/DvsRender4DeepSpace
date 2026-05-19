@@ -152,6 +152,17 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
   const int blocks = (ray_count_ + threads - 1) / threads;
   unsigned seed = static_cast<unsigned>(std::time(nullptr));
   init_rand_states<<<blocks, threads>>>(d_rand_states_, ray_count_, seed);
+#ifdef ENABLE_AER_DELAY
+  CUDA_CHECK(cudaMalloc(&d_event_count_row_, sizeof(int) * height_),
+             "Failed to allocate device memory for event count per row");
+  CUDA_CHECK(cudaMalloc(&d_delay_row_, sizeof(float) * height_),
+             "Failed to initialize device delay row buffer");
+  h_event_count_row_ = new int[height_];
+  h_delay_row_ = new float[height_];
+  last_row_index_ = -1;
+
+  unit_row_delay_ = 1 / physic_config_.readout_bandwidth;
+#endif
 #endif
 #endif
 }
@@ -378,6 +389,28 @@ __global__ void batch_generate_events_kernel(
 
 #ifdef ENABLE_PHYSIC_EFFECTS
 #ifdef ENABLE_HIGH_PASS_FILTER
+#ifdef ENABLE_AER_DELAY
+  CUDA_CHECK(cudaMemset(d_event_count_row_, 0, sizeof(int) * height_),
+             "Failed to initialize event count per row");
+  batch_generate_events_kernel<<<grid_size, block_size>>>(
+      current_time, d_lights_, width_, height_, d_threshold_pos_map_,
+      d_threshold_neg_map_, physic_config_.dark_current,
+      physic_config_.refractory_time, alpha_, physic_config_.shot_noise_freq,
+      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
+      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_row_,
+      d_event_count_, d_rand_states_);
+
+  CUDA_CHECK(cudaMemcpy(h_event_count_row_, d_event_count_row_,
+                        sizeof(int) * height_, cudaMemcpyDeviceToHost),
+             "Failed to copy event count per row from device to host");
+  row_delay_buffer(height_, h_event_count_row_, unit_row_delay_,
+                   physic_config_.readout_latency, h_delay_row_, &last_row_index_);
+
+  CUDA_CHECK(cudaMemcpy(d_delay_row_, h_delay_row_, sizeof(float) * height_,
+                        cudaMemcpyHostToDevice),
+             "Failed to copy updated delay row from host to device");
+  batch_aer_kernel<<<blocks, threads>>>(height_, d_events_, d_delay_row_);
+#endif
   // 考虑噪声模型与高通模型的事件仿真生成器
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
