@@ -188,13 +188,22 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(noise_map, "physic", "refractory_time",
                         physic.refractory_time, err, safe_stof))
     return;
-  if (!extract_required(noise_map, "physic", "readout_bandwidth",
-                        physic.readout_bandwidth, err, safe_stof))
-    return;
   if (!extract_required(noise_map, "physic", "hpf_time_constant",
                         physic.hpf_time_constant, err, safe_stof))
     return;
-
+  if (!extract_required(noise_map, "physic", "shot_noise_freq",
+                        physic.shot_noise_freq, err, safe_stof))
+    return;
+  if (!extract_required(noise_map, "physic", "shot_intensity",
+                        physic.shot_intensity, err, safe_stof))
+    return;
+  if (!extract_required(noise_map, "physic", "readout_latency",
+                        physic.readout_latency, err, safe_stof))
+    return;
+  if (!extract_required(noise_map, "physic", "readout_bandwidth",
+                        physic.readout_bandwidth, err, safe_stof))
+    return;
+  
   // 6. 填充 SceneConfig
   const auto &scene_map = kv["scene"];
   if (!extract_required(scene_map, "scene", "frame_count", scene.frame_count,

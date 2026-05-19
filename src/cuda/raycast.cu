@@ -8,11 +8,20 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-
+#include <curand_kernel.h>
 #include <cuda_runtime.h>
 #include <vector_functions.h>
 
 namespace dvs {
+
+__global__ void init_rand_states(curandState *states, int count,
+                                 unsigned seed) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < count) {
+    curand_init(seed, idx, 0, &states[idx]);
+  }
+}
+
 __device__ __forceinline__ float3 bvh_inverse_direction(const float3 dir) {
   float3 inv;
   inv.x = 1.0f / (fabsf(dir.x) > 1e-20f ? dir.x : copysignf(1e-20f, dir.x));
@@ -208,10 +217,10 @@ batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
 
   Intersection<float3> hit;
   hit.hit = 0;
-  depth = 1e30f;
+  depth = -1.0f;
   hit.triangle_index = -1;
 
-  float t_max = depth;
+  float t_max = 1e30f;
 
   int stack[kMaxStackSize];
   int sp = 0;
@@ -230,9 +239,8 @@ batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
 
         if (intersect_triangle(ray, ray_origin, triangles[tri_id], &t, &u,
                                &v)) {
-          if (t < depth) {
+          if (t < t_max) {
             hit.hit = 1;
-            depth = t;
             t_max = t;
             hit.triangle_index = tri_id;
             const float w = 1 - u - v;
@@ -274,7 +282,9 @@ batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
       break;
     }
   }
-
+  if (hit.hit > 0) {
+    depth = t_max;
+  }
   out_hits[idx] = hit;
 }
 

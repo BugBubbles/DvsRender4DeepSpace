@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cuda_runtime.h>
+#include <curand_kernel.h>
 
 namespace dvs {
 
@@ -33,21 +34,39 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float *depth_map, float *refractory_map,
-    float *last_log_intensity, Event *events, int *event_count);
-#endif
+    const float refractory_time, const float shot_noise_prob,
+    const float shot_intensity, const float *depth_map, float *refractory_map,
+    float *last_log_intensity, Event *events, int *event_count,
+    curandState *rand_states);
 /**
  * @brief 考虑暗电流和不应期以及高通滤波器的事件相机的CUDA核函数。
  */
-#ifdef ENABLE_PHYSIC_EFFECTS
 #ifdef ENABLE_HIGH_PASS_FILTER
 __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float alpha, const float *depth_map,
-    float *refractory_map, float *last_log_intensity, float *last_voltage,
-    Event *events, int *event_count);
+    const float refractory_time, const float alpha, const float shot_noise_prob,
+    const float shot_intensity, const float *depth_map, float *refractory_map,
+    float *last_log_intensity, float *last_voltage, Event *events,
+    int *event_count, curandState *rand_states);
+#ifdef ENABLE_AER_DELAY
+__global__ void batch_generate_events_kernel(
+    const float timestamp, const float *intensity_frame, const int width,
+    const int height, const float *threshold_pos_map,
+    const float *threshold_neg_map, const float dark_current,
+    const float refractory_time, const float alpha, const float shot_noise_freq,
+    const float shot_intensity, const float *depth_map, float *refractory_map,
+    float *last_log_intensity, float *last_voltage, Event *events,
+    int *event_count_row, int *event_count, curandState *rand_states);
+
+void row_delay_buffer(const int height, const int *event_count_row,
+                      const float unit_row_delay, const float unit_col_delay,
+                      float *delay_row, int *last_row_idx);
+
+__global__ void batch_aer_kernel(const int height, Event *events,
+                                 float *row_delay);
+#endif
 #endif
 #endif
 } // namespace dvs

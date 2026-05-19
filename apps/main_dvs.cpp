@@ -201,8 +201,8 @@ int main(int argc, char **argv) {
       bar.update();
 #ifdef DEBUG
       test_id++;
-      if (test_id > 10) {
-        break; // 只测试前10帧，实际使用时可以去掉这个限制
+      if (test_id > 100) {
+        break; // 只测试前100帧，实际使用时可以去掉这个限制
       }
 #endif
     }

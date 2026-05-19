@@ -60,8 +60,12 @@ struct CameraConfig {
 // 事件相机物理噪声参数
 struct PhysicConfig {
   float threshold_pos, threshold_neg, threshold_noise;
-  float dark_current, refractory_time, readout_bandwidth;
+  float dark_current, refractory_time;
   float hpf_time_constant;
+  // 散料噪声参数
+  float shot_noise_freq, shot_intensity;
+  // AER读出延迟参数
+  float readout_bandwidth, readout_latency;
 };
 // 场景配置参数
 struct SceneConfig {
