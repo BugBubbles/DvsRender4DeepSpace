@@ -36,6 +36,8 @@ else()
     warning("AER delay is disabled. To use AER delay characteristic, both ENABLE_PHYSIC_EFFECTS and ENABLE_HIGH_PASS_FILTER options are needed first.")
 endif()
 
+option(BUILD_TOOLS "Build tools for visualization and debugging" OFF)
+
 file(GLOB BVH_SOURCES "src/bvh/*.cpp")
 file(GLOB BASIC_SOURCES "src/*.cpp")
 add_library(dvs_core STATIC
@@ -72,3 +74,6 @@ target_link_libraries(dvs_cuda
 )
 
 add_subdirectory(apps)
+if (BUILD_TOOLS)
+    add_subdirectory(tools/cpp_tools)
+endif()

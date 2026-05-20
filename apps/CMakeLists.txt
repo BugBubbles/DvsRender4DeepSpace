@@ -2,7 +2,7 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
 # 定义一个函数来简化添加测试可执行文件
-function(add_test_executable TARGET_NAME SOURCE_FILE)
+function(add_main_executable TARGET_NAME SOURCE_FILE)
     add_executable(${TARGET_NAME} ${SOURCE_FILE})
     target_link_libraries(${TARGET_NAME}
         PRIVATE
@@ -21,7 +21,7 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
     string(REPLACE "main_" "" EXEC_NAME ${TEST_NAME})
     # 避免重复添加已经手动添加的目标
     if(NOT TARGET ${EXEC_NAME})
-        add_test_executable(${EXEC_NAME} ${TEST_SOURCE})
-        message(STATUS "Added test executable: ${EXEC_NAME}")
+        add_main_executable(${EXEC_NAME} ${TEST_SOURCE})
+        message(STATUS "Added main executable: ${EXEC_NAME}")
     endif()
 endforeach()
