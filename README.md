@@ -155,3 +155,6 @@ Camera rendering converts scene-linear intensity to 8-bit PNG using
 - For stable DVS initialization, the first frame mean intensity is used.
 - If CUDA is not found, ensure `nvcc` is in PATH and `CUDAToolkit` can be
   located by CMake.
+
+## Acknowledge
+We thank the contributors to this project and the open-source software [Blender](https://www.blender.org/), [Eigen](https://eigen.tuxfamily.org/), and [OpenCV](https://opencv.org/).
