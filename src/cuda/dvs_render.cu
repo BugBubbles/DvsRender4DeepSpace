@@ -277,7 +277,7 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
+      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
       ray_count_, d_lights_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
@@ -367,7 +367,7 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
+      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
       ray_count_, d_lights_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;

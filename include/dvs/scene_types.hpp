@@ -40,8 +40,7 @@ template <typename float3> struct BVHNode {
 template <typename float3> struct Intersection {
   int hit = 0;
   int triangle_index = -1;
-  float3 point;
-  float3 normal;
+  float t, u, v;
 };
 
 template <typename float3, typename mat3> struct FrameData {

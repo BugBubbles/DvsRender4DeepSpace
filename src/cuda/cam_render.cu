@@ -280,7 +280,7 @@ void CamRayCaster::render_main(const Vec3 &camera_origin,
 #endif
       // 计算光照，使用Hapke模型
       batch_render_kernel<<<blocks, threads>>>(
-          d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity,
+          d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
           hapke_config_, ray_count_, d_lights_step_);
 #ifdef DEBUG
       cudaDeviceSynchronize();
@@ -375,7 +375,7 @@ void CamBlurRayCaster::render_main(const Vec3 &camera_origin,
 #endif
       // 计算光照，使用Hapke模型
       batch_render_kernel<<<blocks, threads>>>(
-          d_hits_, d_rays_, ray_origin, d_light_dir, light_intensity,
+          d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
           hapke_config_, ray_count_, d_lights_step_);
 #ifdef DEBUG
       cudaDeviceSynchronize();

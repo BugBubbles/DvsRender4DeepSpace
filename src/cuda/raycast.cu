@@ -243,11 +243,15 @@ batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
             hit.hit = 1;
             t_max = t;
             hit.triangle_index = tri_id;
-            const float w = 1 - u - v;
-            hit.point = ray_origin + ray * t;
-            hit.normal =
-                normalize(triangles[tri_id].n0 * w + triangles[tri_id].n1 * u +
-                          triangles[tri_id].n2 * v);
+            // const float w = 1 - u - v;
+            // hit.point = ray_origin + ray * t;
+            // hit.normal =
+            //     normalize(triangles[tri_id].n0 * w + triangles[tri_id].n1 * u
+            //     +
+            //               triangles[tri_id].n2 * v);
+            hit.t = t;
+            hit.u = u;
+            hit.v = v;
           }
         }
       }
@@ -333,13 +337,16 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
               depth = t;
               t_max = t; // 重要：更新裁剪距离
               hit.triangle_index = tri_id;
+              hit.t = t;
+              hit.u = u;
+              hit.v = v;
 
-              // 如果需要也可计算交点与法线：
-              const float w = 1 - u - v;
-              hit.point = ray_origin + ray * t;
-              hit.normal = normalize(triangles[tri_id].n0 * w +
-                                     triangles[tri_id].n1 * u +
-                                     triangles[tri_id].n2 * v);
+              // // 如果需要也可计算交点与法线：
+              // const float w = 1 - u - v;
+              // hit.point = ray_origin + ray * t;
+              // hit.normal = normalize(triangles[tri_id].n0 * w +
+              //                        triangles[tri_id].n1 * u +
+              //                        triangles[tri_id].n2 * v);
             }
           }
         }
@@ -456,35 +463,41 @@ intersect_brute_batch_kernel(const int width, const int height, int tri_count,
     return;
   }
 
-  const auto tri = d_tris[closest_tri_idx];
-  const float w = 1.0f - best_u - best_v;
-  const float3 interp_n =
-      normalize(tri.n0 * w + tri.n1 * best_u + tri.n2 * best_v);
-  const float3 hit_point = ray_origin + ray * closest_t;
+  // const auto tri = d_tris[closest_tri_idx];
+  // const float w = 1.0f - best_u - best_v;
+  // const float3 interp_n =
+  //     normalize(tri.n0 * w + tri.n1 * best_u + tri.n2 * best_v);
+  // const float3 hit_point = ray_origin + ray * closest_t;
   Intersection<float3> out;
   out.hit = 1;
   depth = closest_t;
   out.triangle_index = closest_tri_idx;
-  out.point = hit_point;
-  out.normal = interp_n;
+  // out.point = hit_point;
+  // out.normal = interp_n;
+  out.t = closest_t;
+  out.u = best_u;
+  out.v = best_v;
   out_hits[tid] = out;
 }
 
-__global__ void batch_render_kernel(const Intersection<float3> *hits,
-                                    const float3 *rays, const float3 ray_origin,
-                                    const float3 light_direction,
-                                    const float scene_light_intensity,
-                                    const HapkeConfig hapke_config,
-                                    const int ray_count,
-                                    float *out_light_intensity) {
+__global__ void batch_render_kernel(
+    const Intersection<float3> *hits, const Triangle<float3> *d_tris,
+    const float3 *rays, const float3 ray_origin, const float3 light_direction,
+    const float scene_light_intensity, const HapkeConfig hapke_config,
+    const int ray_count, float *out_light_intensity) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= ray_count)
     return;
   const Intersection<float3> &hit = hits[idx];
   if (hit.hit) {
+    // 这里可以根据 hit.triangle_index 和 hit.u, hit.v 来计算交点的法线和位置
+    const auto tri = d_tris[hit.triangle_index];
+    const float w = 1.0f - hit.u - hit.v;
+    const float3 normal =
+        normalize(tri.n0 * w + tri.n1 * hit.u + tri.n2 * hit.v);
     // 使用Hapke模型
     out_light_intensity[idx] =
-        hapke_brdf(hit.normal, light_direction, -rays[idx], hapke_config) *
+        hapke_brdf(normal, light_direction, -rays[idx], hapke_config) *
         scene_light_intensity;
   } else {
     // 没有命中，返回负数光照

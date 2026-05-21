@@ -97,6 +97,7 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
  * @param out_light_intensity 输出光照强度数组
  */
 __global__ void batch_render_kernel(const Intersection<float3> *out_hits,
+                                    const Triangle<float3> *triangles,
                                     const float3 *rays, const float3 ray_origin,
                                     const float3 light_direction,
                                     const float scene_light_intensity,
