@@ -19,6 +19,7 @@ public:
   static int build(const BVHBuildParams &params,
                    std::vector<BVHNode<Vec3>> &out_nodes,
                    std::vector<Triangle<Vec3>> &triangles);
+  static void validate(const std::vector<BVHNode<Vec3>> &nodes, int root);
 
 private:
   struct BuildContext {

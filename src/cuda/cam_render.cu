@@ -1,3 +1,4 @@
+#include "bvh/build.h"
 #include "dvs/hapke.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_types.hpp"
@@ -105,7 +106,7 @@ CamRayCaster::CamRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
             << ", root count = " << nodes[root_index_].count
             << ", left = " << nodes[root_index_].left
             << ", right = " << nodes[root_index_].right << std::endl;
-  validate_bvh(nodes, root_index_);
+  BVHBuilder::validate(nodes, root_index_);
   std::cout << "BVH validated: " << node_count_ << " nodes, " << tri_count_
             << " triangles." << std::endl;
   // 将Vec3格式的nodes转为float3格式的nodes
@@ -173,62 +174,6 @@ CamRayCaster::CamRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
   init_rand_states<<<blocks, threads>>>(d_rand_states_, ray_count_, seed);
 }
 
-void CamRayCaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
-                                int root) const {
-  if (root < 0 || root >= static_cast<int>(nodes.size())) {
-    throw std::runtime_error("BVH root index out of range");
-  }
-
-  std::vector<bool> visited(nodes.size(), false);
-  std::vector<int> stack;
-  stack.push_back(root);
-
-  int visited_count = 0;
-  int leaf_count = 0;
-  int internal_count = 0;
-
-  while (!stack.empty()) {
-    int idx = stack.back();
-    stack.pop_back();
-
-    if (idx < 0 || idx >= static_cast<int>(nodes.size())) {
-      throw std::runtime_error("BVH invalid node index");
-    }
-
-    if (visited[idx]) {
-      throw std::runtime_error("BVH cycle detected");
-    }
-
-    visited[idx] = true;
-    visited_count++;
-
-    const auto &node = nodes[idx];
-
-    if (node.count > 0) {
-      leaf_count++;
-
-      if (node.left != -1 || node.right != -1) {
-        throw std::runtime_error("BVH leaf has non-negative children");
-      }
-
-      continue;
-    }
-
-    internal_count++;
-
-    if (node.left < 0 || node.left >= static_cast<int>(nodes.size()) ||
-        node.right < 0 || node.right >= static_cast<int>(nodes.size())) {
-      throw std::runtime_error("BVH child index out of range");
-    }
-
-    stack.push_back(node.right);
-    stack.push_back(node.left);
-  }
-
-  std::cout << "BVH validation visited nodes: " << visited_count
-            << ", leaves: " << leaf_count << ", internals: " << internal_count
-            << std::endl;
-}
 void CamRayCaster::render_main(const Vec3 &camera_origin,
                                const Mat3 &camera_world, const Vec3 &light_dir,
                                const float light_intensity,

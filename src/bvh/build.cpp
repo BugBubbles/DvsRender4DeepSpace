@@ -2,6 +2,7 @@
 #include "bvh/binning.h"
 #include <climits>
 #include <cmath>
+#include <iostream>
 #include <time.h>
 #include <vector>
 
@@ -116,5 +117,59 @@ int BVHBuilder::create_leaf_node(BuildContext &ctx, int start, int end,
   ctx.nodes.push_back(node);
   return idx;
 }
+void BVHBuilder::validate(const std::vector<BVHNode<Vec3>> &nodes, int root) {
+  if (root < 0 || root >= static_cast<int>(nodes.size())) {
+    throw std::runtime_error("BVH root index out of range");
+  }
 
+  std::vector<bool> visited(nodes.size(), false);
+  std::vector<int> stack;
+  stack.push_back(root);
+
+  int visited_count = 0;
+  int leaf_count = 0;
+  int internal_count = 0;
+
+  while (!stack.empty()) {
+    int idx = stack.back();
+    stack.pop_back();
+
+    if (idx < 0 || idx >= static_cast<int>(nodes.size())) {
+      throw std::runtime_error("BVH invalid node index");
+    }
+
+    if (visited[idx]) {
+      throw std::runtime_error("BVH cycle detected");
+    }
+
+    visited[idx] = true;
+    visited_count++;
+
+    const auto &node = nodes[idx];
+
+    if (node.count > 0) {
+      leaf_count++;
+
+      if (node.left != -1 || node.right != -1) {
+        throw std::runtime_error("BVH leaf has non-negative children");
+      }
+
+      continue;
+    }
+
+    internal_count++;
+
+    if (node.left < 0 || node.left >= static_cast<int>(nodes.size()) ||
+        node.right < 0 || node.right >= static_cast<int>(nodes.size())) {
+      throw std::runtime_error("BVH child index out of range");
+    }
+
+    stack.push_back(node.right);
+    stack.push_back(node.left);
+  }
+
+  std::cout << "BVH validation visited nodes: " << visited_count
+            << ", leaves: " << leaf_count << ", internals: " << internal_count
+            << std::endl;
+}
 } // namespace dvs

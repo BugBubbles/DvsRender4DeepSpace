@@ -1,3 +1,4 @@
+#include "bvh/build.h"
 #include "dvs/hapke.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_types.hpp"
@@ -52,7 +53,7 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
             << ", root count = " << nodes[root_index_].count
             << ", left = " << nodes[root_index_].left
             << ", right = " << nodes[root_index_].right << std::endl;
-  validate_bvh(nodes, root_index_);
+  BVHBuilder::validate(nodes, root_index_);
   std::cout << "BVH validated: " << node_count_ << " nodes, " << tri_count_
             << " triangles." << std::endl;
   // 将Vec3格式的nodes转为float3格式的nodes
@@ -178,62 +179,6 @@ void DvsRayCaster::initialize(const float frame_intensity) {
   thrust::fill(ptr, ptr + ray_count_, initial_log_intensity);
 }
 
-void DvsRayCaster::validate_bvh(const std::vector<BVHNode<Vec3>> &nodes,
-                                int root) const {
-  if (root < 0 || root >= static_cast<int>(nodes.size())) {
-    throw std::runtime_error("BVH root index out of range");
-  }
-
-  std::vector<bool> visited(nodes.size(), false);
-  std::vector<int> stack;
-  stack.push_back(root);
-
-  int visited_count = 0;
-  int leaf_count = 0;
-  int internal_count = 0;
-
-  while (!stack.empty()) {
-    int idx = stack.back();
-    stack.pop_back();
-
-    if (idx < 0 || idx >= static_cast<int>(nodes.size())) {
-      throw std::runtime_error("BVH invalid node index");
-    }
-
-    if (visited[idx]) {
-      throw std::runtime_error("BVH cycle detected");
-    }
-
-    visited[idx] = true;
-    visited_count++;
-
-    const auto &node = nodes[idx];
-
-    if (node.count > 0) {
-      leaf_count++;
-
-      if (node.left != -1 || node.right != -1) {
-        throw std::runtime_error("BVH leaf has non-negative children");
-      }
-
-      continue;
-    }
-
-    internal_count++;
-
-    if (node.left < 0 || node.left >= static_cast<int>(nodes.size()) ||
-        node.right < 0 || node.right >= static_cast<int>(nodes.size())) {
-      throw std::runtime_error("BVH child index out of range");
-    }
-
-    stack.push_back(node.right);
-    stack.push_back(node.left);
-  }
-
-  std::cout << "BVH validation visited nodes: " << visited_count
-            << ", leaves: " << leaf_count << ", internals: " << internal_count
-            << std::endl;
-}
 void DvsRayCaster::render_main(const Vec3 &camera_origin,
                                const Mat3 &camera_world, const Vec3 &light_dir,
                                const float light_intensity,
@@ -277,8 +222,8 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
-      ray_count_, d_lights_);
+      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
+      hapke_config_, ray_count_, d_lights_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -367,8 +312,8 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity, hapke_config_,
-      ray_count_, d_lights_);
+      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
+      hapke_config_, ray_count_, d_lights_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[2] += end_time - start_time;

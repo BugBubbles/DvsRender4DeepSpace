@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stdexcept>
-#include <string>
 #include <vector>
 
 #include "dvs/dvs_base.hpp"
@@ -13,15 +11,6 @@
 #include <vector_types.h>
 
 #define RAND_SEED 114514
-#define CUDA_CHECK(expr, pos)                                                  \
-  do {                                                                         \
-    const cudaError_t err__ = (expr);                                          \
-    if (err__ != cudaSuccess) {                                                \
-      throw std::runtime_error(std::string("[CUDA Error] in ") + pos +         \
-                               std::string(" : ") +                            \
-                               cudaGetErrorString(err__));                     \
-    }                                                                          \
-  } while (0)
 
 namespace dvs {
 /**
@@ -96,14 +85,11 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
  * @param ray_count 光线数量
  * @param out_light_intensity 输出光照强度数组
  */
-__global__ void batch_render_kernel(const Intersection<float3> *out_hits,
-                                    const Triangle<float3> *triangles,
-                                    const float3 *rays, const float3 ray_origin,
-                                    const float3 light_direction,
-                                    const float scene_light_intensity,
-                                    const HapkeConfig hapke_config,
-                                    const int ray_count,
-                                    float *out_light_intensity);
+__global__ void batch_render_kernel(
+    const Intersection<float3> *out_hits, const Triangle<float3> *triangles,
+    const float3 *rays, const float3 ray_origin, const float3 light_direction,
+    const float scene_light_intensity, const HapkeConfig hapke_config,
+    const int ray_count, float *out_light_intensity);
 
 class DvsRayCaster {
 public:
@@ -199,8 +185,6 @@ public:
                    float *time_records);
 
   void initialize(const float frame_intensity);
-
-  void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
 private:
   int node_count_ = 0;
@@ -302,7 +286,6 @@ public:
                    const Vec3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame,
                    std::vector<float> &depth_map);
-  void validate_bvh(const std::vector<BVHNode<Vec3>> &nodes, int root) const;
 
 protected:
   int node_count_ = 0;

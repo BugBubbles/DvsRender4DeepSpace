@@ -42,10 +42,12 @@ inline __host__ __device__ float3 operator*(float3 a, float b) {
 inline __host__ __device__ float3 operator/(float3 a, float b) {
   return make_float3(a.x / b, a.y / b, a.z / b);
 }
+inline __host__ __device__ float3 operator/=(float3 &a, float b) {
+  a.x /= b, a.y /= b, a.z /= b;
+  return a;
+}
 inline __host__ __device__ float3 operator+=(float3 &a, float3 b) {
-  a.x += b.x;
-  a.y += b.y;
-  a.z += b.z;
+  a.x += b.x, a.y += b.y, a.z += b.z;
   return a;
 }
 inline __host__ __device__ float3 normalize(float3 v) {
