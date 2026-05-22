@@ -127,28 +127,5 @@ inline bool loadImageryData(const std::string &path, Imagery &imagery) {
   GDALClose(dataset);
   return true;
 }
-// static inline void geodeticToMoonECEF(const OGRSpatialReference *geog,
-//                                       double lon_deg, double lat_deg,
-//                                       double h, double &x, double &y,
-//                                       double &z) {
-//   const double a = geog->GetSemiMajor();
-//   const double inv_f = geog->GetInvFlattening();
-//   const double f = (inv_f > 0.0) ? (1.0 / inv_f) : 0.0;
-//   const double e2 = f * (2.0 - f);
-
-//   const double lon = lon_deg * dvs::kPi / 180.0;
-//   const double lat = lat_deg * dvs::kPi / 180.0;
-
-//   const double sin_lat = std::sin(lat);
-//   const double cos_lat = std::cos(lat);
-//   const double sin_lon = std::sin(lon);
-//   const double cos_lon = std::cos(lon);
-
-//   const double n = a / std::sqrt(1.0 - e2 * sin_lat * sin_lat);
-
-//   x = (n + h) * cos_lat * cos_lon;
-//   y = (n + h) * cos_lat * sin_lon;
-//   z = (n * (1.0 - e2) + h) * sin_lat;
-// }
 
 } // namespace tools

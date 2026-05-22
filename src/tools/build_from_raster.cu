@@ -377,11 +377,66 @@ __host__ void build_from_raster(const float *d_dem_data, const float *d_lats,
   // 构建 triangles
   batch_build_triangles_kernel<<<grid_cells, block_size>>>(
       width, height, d_vertices_hash, d_triangles, d_triangle_count);
-  // 计算 normals
+  // 计算 normals，得到的法线已经是单位向量
   batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
       width, height, d_vertices, d_vertices_hash, d_normals);
 
   cudaFree(d_vertices_hash);
 }
 
+__global__ void apply_rigid_transform(float3 *vectors, const int vector_count,
+                                      const float3 translation,
+                                      const float4 quaternion) {
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= vector_count) {
+    return;
+  }
+
+  float3 v = vectors[idx];
+  // 旋转
+  float3 rotated = rotation_vector(quaternion, v);
+  // 平移
+  vectors[idx] = rotated + translation;
+}
+
+void transform_normalization(const float lat, const float lon,
+                             const float radii, float3 &translation,
+                             float4 &quaternion) {
+  // 将当前点转换至北极点
+  float3 north_pole =
+      latlon_to_xyz(radiansf(90.0f), radiansf(0.0f), 0.0f, radii);
+  float3 current_point =
+      latlon_to_xyz(radiansf(lat), radiansf(lon), 0.0f, radii);
+  float3 axis = cross(current_point, north_pole);
+  float axis_len = length(axis);
+  if (axis_len < 1e-12f) {
+    // 如果当前点已经在北极点，选择任意垂直轴
+    axis = make_float3(1.0f, 0.0f, 0.0f);
+    axis_len = 1.0f;
+  }
+  axis /= axis_len;
+  float angle = acosf(dot(current_point, north_pole) /
+                      (length(current_point) * length(north_pole)));
+  float half_angle = angle / 2.0f;
+  quaternion = make_float4(sinf(half_angle) * axis.x, sinf(half_angle) * axis.y,
+                           sinf(half_angle) * axis.z, cosf(half_angle));
+
+  translation = -rotation_vector(quaternion, current_point);
+}
+
+__global__ void trianglize(const float3 *vertices, const float3 *normals,
+                           const int3 *indices, const int triangle_count,
+                           dvs::Triangle<float3> *triangles) {
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= triangle_count)
+    return;
+
+  int3 tri_idx = indices[idx];
+  triangles[idx].v0 = vertices[tri_idx.x];
+  triangles[idx].v1 = vertices[tri_idx.y];
+  triangles[idx].v2 = vertices[tri_idx.z];
+  triangles[idx].n0 = normals[tri_idx.x];
+  triangles[idx].n1 = normals[tri_idx.y];
+  triangles[idx].n2 = normals[tri_idx.z];
+}
 } // namespace tools

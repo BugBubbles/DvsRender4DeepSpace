@@ -1,10 +1,15 @@
+#include "bvh/build.h"
+#include "dvs/math_types.hpp"
 #include "tools/build_from_raster.hpp"
 #include "tools/loader.hpp"
+
 #include <cstddef>
 #include <fstream>
 #include <iostream>
+#include <ratio>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace tools {
 struct Options {
@@ -255,7 +260,8 @@ int main(int argc, char *argv[]) {
     cudaMalloc(&d_vertice_count, sizeof(int));
     cudaMalloc(&d_triangle_count, sizeof(int));
     cudaMemset(d_vertice_count, 0, sizeof(int));
-    cudaMemset(d_triangle_count, 0, sizeof(int));
+    CUDA_CHECK(cudaMemset(d_triangle_count, 0, sizeof(int)),
+               "Failed to initialize triangle count");
 
     tools::build_from_raster(d_dem, d_dem_lats, d_dem_lons, dem.radii,
                              dem.width, dem.height, d_vertices, d_vertice_count,
@@ -264,21 +270,11 @@ int main(int argc, char *argv[]) {
     int h_vertice_count, h_triangle_count;
     cudaMemcpy(&h_vertice_count, d_vertice_count, sizeof(int),
                cudaMemcpyDeviceToHost);
-    cudaMemcpy(&h_triangle_count, d_triangle_count, sizeof(int),
-               cudaMemcpyDeviceToHost);
+    CUDA_CHECK(cudaMemcpy(&h_triangle_count, d_triangle_count, sizeof(int),
+                          cudaMemcpyDeviceToHost),
+               "Failed to copy triangle count to host");
     std::cout << "Generated " << h_vertice_count << " vertices and "
               << h_triangle_count << " triangles." << std::endl;
-
-    // 将顶点、法线和三角形数据从 GPU 复制回 CPU，并保存为 OBJ 文件
-    std::vector<float3> vertices(h_vertice_count);
-    std::vector<float3> normals(h_vertice_count);
-    std::vector<int3> triangles(h_triangle_count);
-    cudaMemcpy(vertices.data(), d_vertices, h_vertice_count * sizeof(float3),
-               cudaMemcpyDeviceToHost);
-    cudaMemcpy(normals.data(), d_normals, h_vertice_count * sizeof(float3),
-               cudaMemcpyDeviceToHost);
-    cudaMemcpy(triangles.data(), d_triangles, h_triangle_count * sizeof(int3),
-               cudaMemcpyDeviceToHost);
     cudaFree(d_dem);
     cudaFree(d_albedo);
     cudaFree(d_aligned_albedo);
@@ -286,10 +282,75 @@ int main(int argc, char *argv[]) {
     cudaFree(d_dem_lons);
     cudaFree(d_albedo_lats);
     cudaFree(d_albedo_lons);
+    cudaFree(d_vertice_count);
+    cudaFree(d_triangle_count);
+    // 计算当前DEM的平均经度和纬度，作为变换的参考点
+    float lat_avg = 0.0f, lon_avg = 0.0f;
+    for (int i = 0; i < dem.height; ++i) {
+      lat_avg += dem.lats[i];
+    }
+    for (int i = 0; i < dem.width; ++i) {
+      lon_avg += dem.lons[i];
+    }
+    lat_avg /= dem.height;
+    lon_avg /= dem.width;
+    std::cout << "Average latitude: " << lat_avg
+              << ", Average longitude: " << lon_avg << std::endl;
+    // 定义一个刚体变换，将 DEM 的平均经纬度位置移动到原点，并保持当地水平
+    float3 translation;
+    float4 rotation;
+    tools::transform_normalization(lat_avg, lon_avg, dem.radii, translation,
+                                   rotation);
+    std::cout << "Translation: (" << translation.x << ", " << translation.y
+              << ", " << translation.z << ")" << std::endl;
+    std::cout << "Rotation (quaternion): (" << rotation.x << ", " << rotation.y
+              << ", " << rotation.z << ", " << rotation.w << ")" << std::endl;
+
+    // 对各个顶点作刚体变换
+    int thread_count = 256;
+    int vertex_grid_size = (h_vertice_count + thread_count - 1) / thread_count;
+    tools::apply_rigid_transform<<<vertex_grid_size, thread_count>>>(
+        d_vertices, h_vertice_count, translation, rotation);
+    tools::apply_rigid_transform<<<vertex_grid_size, thread_count>>>(
+        d_normals, h_vertice_count, make_float3(0.0f, 0.0f, 0.0f), rotation);
+    // 修改为当前dvs版本的三角形数据结构
+    dvs::Triangle<float3> *d_tris;
+    cudaMalloc(&d_tris, h_triangle_count * sizeof(dvs::Triangle<float3>));
+    tools::trianglize<<<vertex_grid_size, thread_count>>>(
+        d_vertices, d_normals, d_triangles, h_triangle_count, d_tris);
     cudaFree(d_vertices);
     cudaFree(d_normals);
     cudaFree(d_triangles);
 
+    std::vector<dvs::Triangle<float3>> h_tris(h_triangle_count);
+    cudaMemcpy(h_tris.data(), d_tris,
+               h_triangle_count * sizeof(dvs::Triangle<float3>),
+               cudaMemcpyDeviceToHost);
+    std::vector<dvs::Triangle<dvs::Vec3>> triangles(h_triangle_count);
+    for (int i = 0; i < h_triangle_count; ++i) {
+      const auto &tri = h_tris[i];
+      triangles[i] = dvs::Triangle<dvs::Vec3>{
+          dvs::Vec3(tri.v0.x, tri.v0.y, tri.v0.z),
+          dvs::Vec3(tri.v1.x, tri.v1.y, tri.v1.z),
+          dvs::Vec3(tri.v2.x, tri.v2.y, tri.v2.z),
+          dvs::Vec3(tri.n0.x, tri.n0.y, tri.n0.z),
+          dvs::Vec3(tri.n1.x, tri.n1.y, tri.n1.z),
+          dvs::Vec3(tri.n2.x, tri.n2.y, tri.n2.z),
+      };
+    }
+    std::cout << "Converted triangles to DVS format." << std::endl;
+
+    dvs::BVHBuildParams params; // 可使用默认参数
+    std::vector<dvs::BVHNode<dvs::Vec3>> bvh_nodes;
+    int root_index = dvs::BVHBuilder::build(params, bvh_nodes, triangles);
+
+    std::cout << "BVH root_index_ = " << root_index
+              << ", root count = " << bvh_nodes[root_index].count
+              << ", left = " << bvh_nodes[root_index].left
+              << ", right = " << bvh_nodes[root_index].right << std::endl;
+    dvs::BVHBuilder::validate(bvh_nodes, root_index);
+    std::cout << "BVH validated: " << root_index << " nodes, "
+              << bvh_nodes[root_index].count << " triangles." << std::endl;
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
     return 1;
