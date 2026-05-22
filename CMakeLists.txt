@@ -57,7 +57,7 @@ target_link_libraries(dvs_core
         ${OpenCV_LIBS}
 )
 
-file (GLOB_RECURSE CUDA_SOURCES "src/cuda/*.cu")
+file (GLOB_RECURSE CUDA_SOURCES "src/*.cu")
 add_library(dvs_cuda STATIC
     ${CUDA_SOURCES}
 )

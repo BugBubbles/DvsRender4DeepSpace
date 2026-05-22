@@ -1,9 +1,9 @@
 #pragma once
 
-#include "dvs/math_types.hpp"
+#include "device_types.h"
+#include <cmath>
 #include <cuda_runtime.h>
-
-namespace dvs {
+#include <device_atomic_functions.h>
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -42,6 +42,12 @@ inline __host__ __device__ float3 operator*(float3 a, float b) {
 inline __host__ __device__ float3 operator/(float3 a, float b) {
   return make_float3(a.x / b, a.y / b, a.z / b);
 }
+inline __host__ __device__ float3 operator+=(float3 &a, float3 b) {
+  a.x += b.x;
+  a.y += b.y;
+  a.z += b.z;
+  return a;
+}
 inline __host__ __device__ float3 normalize(float3 v) {
   float len = sqrtf(dot(v, v));
   if (len > 0.0f) {
@@ -49,4 +55,6 @@ inline __host__ __device__ float3 normalize(float3 v) {
   }
   return make_float3(0.0f, 0.0f, 0.0f);
 }
-} // namespace dvs
+inline __host__ __device__ float radiansf(float degrees) {
+  return degrees * (M_PI / 180.0f);
+}
