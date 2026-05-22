@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dvs/helper_math.hpp"
+#include "helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 

@@ -1,9 +1,9 @@
 #include "bvh/build.h"
 #include "dvs/hapke.hpp"
-#include "dvs/helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_types.hpp"
+#include "helper_math.hpp"
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "device_types.h"
 #include <cmath>
 #include <cuda_runtime.h>
 #include <device_atomic_functions.h>
+#include <device_types.h>
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -42,6 +42,9 @@ inline __host__ __device__ float3 operator*(float3 a, float b) {
 inline __host__ __device__ float3 operator/(float3 a, float b) {
   return make_float3(a.x / b, a.y / b, a.z / b);
 }
+inline __host__ __device__ float3 operator/(float a, float3 b) {
+  return make_float3(a / b.x, a / b.y, a / b.z);
+}
 inline __host__ __device__ float3 operator/=(float3 &a, float b) {
   a.x /= b, a.y /= b, a.z /= b;
   return a;
@@ -59,4 +62,16 @@ inline __host__ __device__ float3 normalize(float3 v) {
 }
 inline __host__ __device__ float radiansf(float degrees) {
   return degrees * (M_PI / 180.0f);
+}
+inline __host__ __device__ float3 fmaxf(float3 a, float3 b) {
+  return make_float3(fmaxf(a.x, b.x), fmaxf(a.y, b.y), fmaxf(a.z, b.z));
+}
+inline __host__ __device__ float3 fmaxf(float3 a, float b) {
+  return make_float3(fmaxf(a.x, b), fmaxf(a.y, b), fmaxf(a.z, b));
+}
+inline __host__ __device__ float3 fminf(float3 a, float3 b) {
+  return make_float3(fminf(a.x, b.x), fminf(a.y, b.y), fminf(a.z, b.z));
+}
+inline __host__ __device__ float3 fminf(float3 a, float b) {
+  return make_float3(fminf(a.x, b), fminf(a.y, b), fminf(a.z, b));
 }

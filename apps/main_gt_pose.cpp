@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     }
 
     const Options opts = parse_args(argc, argv);
-    dvs::SceneBundle<dvs::Vec3> scene;
+    dvs::SceneBundle<float3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);

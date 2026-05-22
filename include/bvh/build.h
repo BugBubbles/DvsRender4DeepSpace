@@ -17,15 +17,15 @@ public:
   // 输入：三角形数组（原始顺序）
   // 输出：构建后的 BVH 节点数组（线性二叉树）和按 BVH 顺序重排的三角形数组
   static int build(const BVHBuildParams &params,
-                   std::vector<BVHNode<Vec3>> &out_nodes,
-                   std::vector<Triangle<Vec3>> &triangles);
-  static void validate(const std::vector<BVHNode<Vec3>> &nodes, int root);
+                   std::vector<BVHNode<float3>> &out_nodes,
+                   std::vector<Triangle<float3>> &triangles);
+  static void validate(const std::vector<BVHNode<float3>> &nodes, int root);
 
 private:
   struct BuildContext {
     const BVHBuildParams &params;
     std::vector<BVHReference> refs;
-    std::vector<BVHNode<Vec3>> nodes;
+    std::vector<BVHNode<float3>> nodes;
     int node_count = 0;
   };
 
@@ -33,7 +33,7 @@ private:
   static int build_node(BuildContext &ctx, int start, int end, int level);
 
   static int create_leaf_node(BuildContext &ctx, int start, int end,
-                              const AABB<Vec3> &box);
+                              const AABB<float3> &box);
 };
 
 } // namespace dvs

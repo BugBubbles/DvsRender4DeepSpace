@@ -31,7 +31,7 @@ __global__ void threshold_map_init_kernel(const int width, const int height,
   threshold_map[idx] = threshold * (1.0f + noise); // 添加噪声后的阈值
 }
 
-DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3> &scene,
+DvsRayCaster::DvsRayCaster(const SceneBundle<float3> &scene,
                            const Config &config, const int root_index)
     : root_index_(root_index), hapke_config_(config.hapke),
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),
@@ -56,31 +56,7 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3> &scene,
   BVHBuilder::validate(nodes, root_index_);
   std::cout << "BVH validated: " << node_count_ << " nodes, " << tri_count_
             << " triangles." << std::endl;
-  // 将Vec3格式的nodes转为float3格式的nodes
-  std::vector<BVHNode<float3>> float_nodes(node_count_);
-  std::vector<Triangle<float3>> float_tris(tri_count_);
-  for (int i = 0; i < tri_count_; ++i) {
-    const auto &src_tri = triangles[static_cast<size_t>(i)];
-    auto &dst_tri = float_tris[static_cast<size_t>(i)];
-    dst_tri.v0 = make_float3(src_tri.v0.x(), src_tri.v0.y(), src_tri.v0.z());
-    dst_tri.v1 = make_float3(src_tri.v1.x(), src_tri.v1.y(), src_tri.v1.z());
-    dst_tri.v2 = make_float3(src_tri.v2.x(), src_tri.v2.y(), src_tri.v2.z());
-    dst_tri.n0 = make_float3(src_tri.n0.x(), src_tri.n0.y(), src_tri.n0.z());
-    dst_tri.n1 = make_float3(src_tri.n1.x(), src_tri.n1.y(), src_tri.n1.z());
-    dst_tri.n2 = make_float3(src_tri.n2.x(), src_tri.n2.y(), src_tri.n2.z());
-  }
-  for (int i = 0; i < node_count_; ++i) {
-    const auto &src_node = nodes[static_cast<size_t>(i)];
-    auto &dst_node = float_nodes[static_cast<size_t>(i)];
-    dst_node.box.min = make_float3(src_node.box.min.x(), src_node.box.min.y(),
-                                   src_node.box.min.z());
-    dst_node.box.max = make_float3(src_node.box.max.x(), src_node.box.max.y(),
-                                   src_node.box.max.z());
-    dst_node.left = src_node.left;
-    dst_node.right = src_node.right;
-    dst_node.start = src_node.start;
-    dst_node.count = src_node.count;
-  }
+
   CUDA_CHECK(cudaMalloc(&d_nodes_, sizeof(BVHNode<float3>) *
                                        static_cast<size_t>(node_count_)),
              "Failed to allocate device memory for BVH nodes");
@@ -88,12 +64,12 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3> &scene,
                                       static_cast<size_t>(tri_count_)),
              "Failed to allocate device memory for triangles");
   CUDA_CHECK(
-      cudaMemcpy(d_nodes_, float_nodes.data(),
+      cudaMemcpy(d_nodes_, nodes.data(),
                  sizeof(BVHNode<float3>) * static_cast<size_t>(node_count_),
                  cudaMemcpyHostToDevice),
       "Failed to copy BVH data from host to device");
   CUDA_CHECK(
-      cudaMemcpy(d_tris_, float_tris.data(),
+      cudaMemcpy(d_tris_, triangles.data(),
                  sizeof(Triangle<float3>) * static_cast<size_t>(tri_count_),
                  cudaMemcpyHostToDevice),
       "Failed to copy BVH data from host to device");
@@ -179,19 +155,18 @@ void DvsRayCaster::initialize(const float frame_intensity) {
   thrust::fill(ptr, ptr + ray_count_, initial_log_intensity);
 }
 
-void DvsRayCaster::render_main(const Vec3 &camera_origin,
-                               const Mat3 &camera_world, const Vec3 &light_dir,
+void DvsRayCaster::render_main(const float3 &camera_origin,
+                               const float *camera_world,
+                               const float3 &light_dir,
                                const float light_intensity,
                                std::vector<float> &light_frame) {
 #ifdef DEBUG
   auto err = cudaGetLastError();
 #endif
-  float3 ray_origin =
-      make_float3(camera_origin.x(), camera_origin.y(), camera_origin.z());
   float *d_camera_world;
   CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9),
              "Failed to allocate device memory for camera world matrix");
-  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world.data(), sizeof(float) * 9,
+  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world, sizeof(float) * 9,
                         cudaMemcpyHostToDevice),
              "Failed to copy camera world matrix from host to device");
   // 生成视线
@@ -199,7 +174,8 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
                  (height_ + block_size.y - 1) / block_size.y);
   view_direction_batch_kernel<<<grid_size, block_size>>>(
-      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, ray_origin, d_rays_);
+      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, camera_origin,
+      d_rays_);
   // cudaDeviceSynchronize();
   // err = cudaGetLastError();
   // std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
@@ -209,9 +185,9 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   //     d_hits_);
   const int threads = 128; // 或 256
   const int blocks = (ray_count_ + threads - 1) / threads;
-  batch_intersect_kernel<<<blocks, threads>>>(d_nodes_, root_index_, d_tris_,
-                                              d_rays_, ray_origin, ray_count_,
-                                              d_hits_, d_depth_map_);
+  batch_intersect_kernel<<<blocks, threads>>>(
+      d_nodes_, root_index_, d_tris_, d_rays_, camera_origin, ray_count_,
+      d_hits_, d_depth_map_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -219,10 +195,9 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
 #endif
   cudaFree(d_camera_world);
   // 计算光照，使用Hapke模型
-  float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
+      d_hits_, d_tris_, d_rays_, camera_origin, light_dir, light_intensity,
       hapke_config_, ray_count_, d_lights_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
@@ -249,20 +224,19 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
 #endif
 }
 
-void DvsRayCaster::render_main(const Vec3 &camera_origin,
-                               const Mat3 &camera_world, const Vec3 &light_dir,
+void DvsRayCaster::render_main(const float3 &camera_origin,
+                               const float *camera_world,
+                               const float3 &light_dir,
                                const float light_intensity,
                                const float current_time,
                                std::vector<Event> &events, float *test_time) {
 #ifdef DEBUG
   auto err = cudaGetLastError();
 #endif
-  float3 ray_origin =
-      make_float3(camera_origin.x(), camera_origin.y(), camera_origin.z());
   float *d_camera_world;
   CUDA_CHECK(cudaMalloc(&d_camera_world, sizeof(float) * 9),
              "Failed to allocate device memory for camera world matrix");
-  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world.data(), sizeof(float) * 9,
+  CUDA_CHECK(cudaMemcpy(d_camera_world, camera_world, sizeof(float) * 9,
                         cudaMemcpyHostToDevice),
              "Failed to copy camera world matrix from host to device");
   // 生成视线
@@ -273,7 +247,8 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
   float start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   view_direction_batch_kernel<<<grid_size, block_size>>>(
-      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, ray_origin, d_rays_);
+      width_, height_, fx_, fy_, cx_, cy_, d_camera_world, camera_origin,
+      d_rays_);
   cudaFree(d_camera_world);
 #ifdef DEBUG
   float end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
@@ -293,9 +268,9 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
 #ifdef DEBUG
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
-  batch_intersect_kernel<<<blocks, threads>>>(d_nodes_, root_index_, d_tris_,
-                                              d_rays_, ray_origin, ray_count_,
-                                              d_hits_, d_depth_map_);
+  batch_intersect_kernel<<<blocks, threads>>>(
+      d_nodes_, root_index_, d_tris_, d_rays_, camera_origin, ray_count_,
+      d_hits_, d_depth_map_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[1] += end_time - start_time;
@@ -307,12 +282,11 @@ void DvsRayCaster::render_main(const Vec3 &camera_origin,
 #endif
 
   // 计算光照，使用Hapke模型
-  float3 d_light_dir = make_float3(light_dir.x(), light_dir.y(), light_dir.z());
 #ifdef DEBUG
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, ray_origin, d_light_dir, light_intensity,
+      d_hits_, d_tris_, d_rays_, camera_origin, light_dir, light_intensity,
       hapke_config_, ray_count_, d_lights_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;

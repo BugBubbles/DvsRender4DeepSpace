@@ -22,9 +22,9 @@ public:
 private:
   enum { NUM_BINS = 32 };
 
-  int num_bins;           // 实际使用的桶数量
-  Vec3 scale;             // 将中心坐标映射到桶索引的缩放因子
-  AABB<Vec3> cent_bounds; // 所有三角形中心点的包围盒
+  int num_bins_;             // 实际使用的桶数量
+  float3 scale_;             // 将中心坐标映射到桶索引的缩放因子
+  AABB<float3> cent_bounds_; // 所有三角形中心点的包围盒
 };
 
 } // namespace dvs

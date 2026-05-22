@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     }
 
     const Options opts = parse_args(argc, argv);
-    dvs::SceneBundle<dvs::Vec3> scene;
+    dvs::SceneBundle<float3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
@@ -144,9 +144,9 @@ int main(int argc, char **argv) {
     for (size_t step = 0; step < total_steps; ++step) {
       float current_time = start_time + step * step_time;
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
-      dvs::Vec3 camera_origin = state.position;
-      dvs::Mat3 camera_world = state.orientation;
-      dvs::Vec3 light_dir = state.light_direction;
+      float3 camera_origin = dvs::vec3_to_float3(state.position);
+      const float *camera_world = state.orientation.data();
+      float3 light_dir = dvs::vec3_to_float3(state.light_direction);
       float light_intensity = state.light_intensity;
       raycaster.render_main(camera_origin, camera_world, light_dir,
                             light_intensity, light_frame_step_float);

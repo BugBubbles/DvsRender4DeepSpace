@@ -88,15 +88,16 @@ int main(int argc, char **argv) {
     }
 
     const Options opts = parse_args(argc, argv);
-    dvs::SceneBundle<dvs::Vec3> scene;
-    std::vector<dvs::FrameData<dvs::Vec3,dvs::Mat3>> frames;
+    dvs::SceneBundle<float3> scene;
+    std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
     if (!error_message.empty()) {
       throw std::runtime_error("failed to load config: " + error_message);
       return 1;
     }
-    if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames, &error_message)) {
+    if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
+                                &error_message)) {
       throw std::runtime_error("failed to load scene bundle: " + error_message);
       return 1;
     }
@@ -121,8 +122,8 @@ int main(int argc, char **argv) {
 
     std::size_t total_images = 0;
 
-    size_t frame_count = std::min(
-        frames.size(), static_cast<size_t>(config.scene.frame_count));
+    size_t frame_count =
+        std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
     float end_time = frames[frame_count - 1].timestamp;
     float start_time = frames.front().timestamp;
     std::size_t total_steps = static_cast<std::size_t>(
@@ -140,9 +141,9 @@ int main(int argc, char **argv) {
     for (size_t step = 0; step < total_steps; ++step) {
       float current_time = start_time + step * write_interval;
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
-      dvs::Vec3 camera_origin = state.position;
-      dvs::Mat3 camera_world = state.orientation;
-      dvs::Vec3 light_dir = state.light_direction;
+      float3 camera_origin = dvs::vec3_to_float3(state.position);
+      const float *camera_world = state.orientation.data();
+      float3 light_dir = dvs::vec3_to_float3(state.light_direction);
       float light_intensity = state.light_intensity;
       raycaster.render_main(camera_origin, camera_world, light_dir,
                             light_intensity, light_frame_float, depth_frame);

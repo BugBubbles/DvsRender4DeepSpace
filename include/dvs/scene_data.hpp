@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <vector_types.h>
 
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
@@ -11,7 +12,7 @@
 namespace dvs {
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<Vec3> &out_bundle,
+                       SceneBundle<float3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &out_frames,
                        std::string *error_message);
 
@@ -33,12 +34,12 @@ bool extract_required(const std::unordered_map<std::string, std::string> &map,
   return true;
 };
 
-std::vector<Triangle<Vec3>>
-build_triangles_from_mesh(const MeshData<Vec3, Uint3> &mesh);
+std::vector<Triangle<float3>>
+build_triangles_from_mesh(const MeshData<float3, Uint3> &mesh);
 
-void build_bvh(const std::vector<Triangle<Vec3>> &triangles,
-               std::vector<BVHNode<Vec3>> *out_nodes,
-               std::vector<Triangle<Vec3>> *out_ordered_triangles,
+void build_bvh(const std::vector<Triangle<float3>> &triangles,
+               std::vector<BVHNode<float3>> *out_nodes,
+               std::vector<Triangle<float3>> *out_ordered_triangles,
                int leaf_size = 8);
 
 } // namespace dvs

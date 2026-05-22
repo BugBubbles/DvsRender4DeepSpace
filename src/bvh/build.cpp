@@ -5,41 +5,51 @@
 #include <iostream>
 #include <time.h>
 #include <vector>
+#include <vector_types.h>
 
 namespace dvs {
 
 // 计算三角形的包围盒
-static AABB<Vec3> compute_tri_aabb(const Triangle<Vec3> &tri) {
-  AABB<Vec3> box;
-  box.min = tri.v0.cwiseMin(tri.v1.cwiseMin(tri.v2));
-  box.max = tri.v0.cwiseMax(tri.v1.cwiseMax(tri.v2));
+static AABB<float3> compute_tri_aabb(const Triangle<float3> &tri) {
+  AABB<float3> box;
+  box.min = fminf(fminf(tri.v0, tri.v1), tri.v2);
+  box.max = fmaxf(fmaxf(tri.v0, tri.v1), tri.v2);
   return box;
 }
 
 int BVHBuilder::build(const BVHBuildParams &params,
-                      std::vector<BVHNode<Vec3>> &out_nodes,
-                      std::vector<Triangle<Vec3>> &triangles) {
+                      std::vector<BVHNode<float3>> &out_nodes,
+                      std::vector<Triangle<float3>> &triangles) {
   if (triangles.empty()) {
     out_nodes.clear();
     return -1;
   }
 
   float start_time = (float)clock() / CLOCKS_PER_SEC;
+  float end_time;
 
   BuildContext ctx{params, {}, {}, 0};
 
   ctx.refs.reserve(triangles.size());
   for (int i = 0; i < static_cast<int>(triangles.size()); ++i) {
-    AABB<Vec3> box = compute_tri_aabb(triangles[i]);
-    Vec3 center = aabb_center(box);
+    AABB<float3> box = compute_tri_aabb(triangles[i]);
+    float3 center = aabb_center(box);
     ctx.refs.push_back({box, center, i});
   }
+  end_time = (float)clock() / CLOCKS_PER_SEC;
+  printf("BVH build: computed triangle bounds in %.2f seconds\n",
+         end_time - start_time);
+  start_time = end_time;
 
   ctx.nodes.reserve(2 * triangles.size());
 
   int root_index = build_node(ctx, 0, static_cast<int>(ctx.refs.size()), 0);
+  end_time = (float)clock() / CLOCKS_PER_SEC;
+  printf("BVH build: constructed BVH nodes in %.2f seconds\n",
+         end_time - start_time);
+  start_time = end_time;
 
-  std::vector<Triangle<Vec3>> out_triangles;
+  std::vector<Triangle<float3>> out_triangles;
   out_triangles.resize(triangles.size());
   for (int i = 0; i < static_cast<int>(ctx.refs.size()); ++i) {
     out_triangles[i] = triangles[ctx.refs[i].tri_index];
@@ -48,7 +58,7 @@ int BVHBuilder::build(const BVHBuildParams &params,
   triangles = std::move(out_triangles);
   out_nodes = std::move(ctx.nodes);
 
-  float end_time = (float)clock() / CLOCKS_PER_SEC;
+  end_time = (float)clock() / CLOCKS_PER_SEC;
   printf("BVH build completed in %.2f seconds, root=%d\n",
          end_time - start_time, root_index);
 
@@ -61,7 +71,7 @@ int BVHBuilder::build_node(BuildContext &ctx, int start, int end, int level) {
   if (range_size <= 0) {
     throw std::runtime_error("BVH build_node empty range");
   }
-  AABB<Vec3> range_box = aabb_empty();
+  AABB<float3> range_box = aabb_empty();
   for (int i = start; i < end; ++i) {
     aabb_grow(range_box, ctx.refs[i].bounds);
   }
@@ -94,7 +104,7 @@ int BVHBuilder::build_node(BuildContext &ctx, int start, int end, int level) {
                              right_range.start + right_range.size, level + 1);
 
   // 创建内部节点
-  BVHNode<Vec3> node;
+  BVHNode<float3> node;
   node.box = range_box;
   node.left = left_idx;
   node.right = right_idx;
@@ -106,8 +116,8 @@ int BVHBuilder::build_node(BuildContext &ctx, int start, int end, int level) {
 }
 
 int BVHBuilder::create_leaf_node(BuildContext &ctx, int start, int end,
-                                 const AABB<Vec3> &box) {
-  BVHNode<Vec3> node;
+                                 const AABB<float3> &box) {
+  BVHNode<float3> node;
   node.box = box;
   node.left = -1;
   node.right = -1;
@@ -117,7 +127,7 @@ int BVHBuilder::create_leaf_node(BuildContext &ctx, int start, int end,
   ctx.nodes.push_back(node);
   return idx;
 }
-void BVHBuilder::validate(const std::vector<BVHNode<Vec3>> &nodes, int root) {
+void BVHBuilder::validate(const std::vector<BVHNode<float3>> &nodes, int root) {
   if (root < 0 || root >= static_cast<int>(nodes.size())) {
     throw std::runtime_error("BVH root index out of range");
   }

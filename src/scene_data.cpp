@@ -1,10 +1,12 @@
 #include "dvs/scene_data.hpp"
 #include "dvs/scene_types.hpp"
+#include "helper_math.hpp"
 
 #include <cctype>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <vector_types.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -87,7 +89,7 @@ bool read_binary_u32(const std::filesystem::path &path,
 }
 
 bool load_mesh_data(const std::filesystem::path &dir,
-                    MeshData<Vec3, Uint3> *out, std::string *err) {
+                    MeshData<float3, uint3> &out, std::string *err) {
   std::vector<float> vertices_raw;
   std::vector<float> normals_raw;
   std::vector<std::uint32_t> indices_raw;
@@ -110,14 +112,14 @@ bool load_mesh_data(const std::filesystem::path &dir,
     return false;
   }
 
-  out->vertices.resize(vertices_raw.size() / 3);
-  out->normals.resize(normals_raw.size() / 3);
-  out->indices.resize(indices_raw.size() / 3);
+  out.vertices.resize(vertices_raw.size() / 3);
+  out.normals.resize(normals_raw.size() / 3);
+  out.indices.resize(indices_raw.size() / 3);
 
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0;
-       i < static_cast<std::ptrdiff_t>(out->vertices.size()); ++i) {
-    out->vertices[i] = {
+       i < static_cast<std::ptrdiff_t>(out.vertices.size()); ++i) {
+    out.vertices[i] = {
         vertices_raw[static_cast<std::size_t>(i) * 3 + 0],
         vertices_raw[static_cast<std::size_t>(i) * 3 + 1],
         vertices_raw[static_cast<std::size_t>(i) * 3 + 2],
@@ -125,8 +127,8 @@ bool load_mesh_data(const std::filesystem::path &dir,
   }
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0;
-       i < static_cast<std::ptrdiff_t>(out->normals.size()); ++i) {
-    out->normals[i] = {
+       i < static_cast<std::ptrdiff_t>(out.normals.size()); ++i) {
+    out.normals[i] = {
         normals_raw[static_cast<std::size_t>(i) * 3 + 0],
         normals_raw[static_cast<std::size_t>(i) * 3 + 1],
         normals_raw[static_cast<std::size_t>(i) * 3 + 2],
@@ -134,8 +136,8 @@ bool load_mesh_data(const std::filesystem::path &dir,
   }
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0;
-       i < static_cast<std::ptrdiff_t>(out->indices.size()); ++i) {
-    out->indices[i] = {
+       i < static_cast<std::ptrdiff_t>(out.indices.size()); ++i) {
+    out.indices[i] = {
         indices_raw[static_cast<std::size_t>(i) * 3 + 0],
         indices_raw[static_cast<std::size_t>(i) * 3 + 1],
         indices_raw[static_cast<std::size_t>(i) * 3 + 2],
@@ -180,59 +182,54 @@ bool load_frames_data(const std::filesystem::path &dir,
   return true;
 }
 
-std::vector<Triangle<Vec3>>
-build_triangles_from_mesh(const MeshData<Vec3, Uint3> &mesh) {
-  std::vector<Triangle<Vec3>> tmp(mesh.indices.size());
+void build_triangles_from_mesh(const MeshData<float3, uint3> &mesh,
+                               std::vector<Triangle<float3>> &out) {
+  std::vector<Triangle<float3>> tmp(mesh.indices.size());
   std::vector<std::uint8_t> valid(mesh.indices.size(),
                                   static_cast<std::uint8_t>(0));
 
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0;
        i < static_cast<std::ptrdiff_t>(mesh.indices.size()); ++i) {
-    const Uint3 tri = mesh.indices[static_cast<std::size_t>(i)];
-    if (tri.x() >= mesh.vertices.size() || tri.y() >= mesh.vertices.size() ||
-        tri.z() >= mesh.vertices.size()) {
+    const uint3 tri = mesh.indices[static_cast<std::size_t>(i)];
+    if (tri.x >= mesh.vertices.size() || tri.y >= mesh.vertices.size() ||
+        tri.z >= mesh.vertices.size()) {
       continue;
     }
-    const Vec3 v0 = mesh.vertices[static_cast<std::size_t>(tri.x())];
-    const Vec3 v1 = mesh.vertices[static_cast<std::size_t>(tri.y())];
-    const Vec3 v2 = mesh.vertices[static_cast<std::size_t>(tri.z())];
-    const Vec3 face_n = (v1 - v0).cross(v2 - v0).normalized();
+    const float3 v0 = mesh.vertices[static_cast<std::size_t>(tri.x)];
+    const float3 v1 = mesh.vertices[static_cast<std::size_t>(tri.y)];
+    const float3 v2 = mesh.vertices[static_cast<std::size_t>(tri.z)];
+    const float3 face_n = normalize(cross(v1 - v0, v2 - v0));
 
-    const Vec3 n0 =
-        (tri.x() < mesh.normals.size())
-            ? mesh.normals[static_cast<std::size_t>(tri.x())].normalized()
-            : face_n;
-    const Vec3 n1 =
-        (tri.y() < mesh.normals.size())
-            ? mesh.normals[static_cast<std::size_t>(tri.y())].normalized()
-            : face_n;
-    const Vec3 n2 =
-        (tri.z() < mesh.normals.size())
-            ? mesh.normals[static_cast<std::size_t>(tri.z())].normalized()
-            : face_n;
+    const float3 n0 = (tri.x < mesh.normals.size())
+                          ? mesh.normals[static_cast<std::size_t>(tri.x)]
+                          : face_n;
+    const float3 n1 = (tri.y < mesh.normals.size())
+                          ? mesh.normals[static_cast<std::size_t>(tri.y)]
+                          : face_n;
+    const float3 n2 = (tri.z < mesh.normals.size())
+                          ? mesh.normals[static_cast<std::size_t>(tri.z)]
+                          : face_n;
 
-    tmp[static_cast<std::size_t>(i)] = Triangle<Vec3>{v0, v1, v2, n0, n1, n2};
+    tmp[static_cast<std::size_t>(i)] = Triangle<float3>{v0, v1, v2, n0, n1, n2};
     valid[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(1);
   }
 
-  std::vector<Triangle<Vec3>> triangles;
-  triangles.reserve(mesh.indices.size());
+  out.reserve(mesh.indices.size());
   for (std::size_t i = 0; i < tmp.size(); ++i) {
     if (valid[i] == 0) {
       continue;
     }
-    triangles.push_back(tmp[i]);
+    out.push_back(tmp[i]);
   }
-  return triangles;
 }
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<Vec3> &out_bundle,
+                       SceneBundle<float3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message) {
-  MeshData<Vec3, Uint3> mesh;
-  if (!load_mesh_data(bundle_dir, &mesh, error_message)) {
+  MeshData<float3, uint3> mesh;
+  if (!load_mesh_data(bundle_dir, mesh, error_message)) {
     return false;
   }
 
@@ -250,7 +247,7 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
     return false;
   }
 
-  out_bundle.bvh_triangles = build_triangles_from_mesh(mesh);
+  build_triangles_from_mesh(mesh, out_bundle.bvh_triangles);
   out_bundle.bvh_nodes.clear();
 
   if (out_bundle.bvh_triangles.empty()) {

@@ -3,7 +3,6 @@
 #include <vector>
 
 #include "dvs/dvs_base.hpp"
-#include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -93,7 +92,7 @@ __global__ void batch_render_kernel(
 
 class DvsRayCaster {
 public:
-  DvsRayCaster(const SceneBundle<Vec3> &scene, const Config &config,
+  DvsRayCaster(const SceneBundle<float3> &scene, const Config &config,
                const int root_index);
   ~DvsRayCaster() {
     if (d_nodes_ != nullptr) {
@@ -175,12 +174,12 @@ public:
     ray_count_ = 0;
   };
 
-  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
-                   const Vec3 &light_dir, const float light_intensity,
+  void render_main(const float3 &camera_origin, const float *camera_world,
+                   const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame);
 
-  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
-                   const Vec3 &light_dir, const float light_intensity,
+  void render_main(const float3 &camera_origin, const float *camera_world,
+                   const float3 &light_dir, const float light_intensity,
                    const float current_time, std::vector<Event> &events,
                    float *time_records);
 
@@ -236,7 +235,7 @@ private:
 
 class CamRayCaster {
 public:
-  CamRayCaster(const SceneBundle<Vec3> &scene, const Config &config,
+  CamRayCaster(const SceneBundle<float3> &scene, const Config &config,
                const int root_index);
   ~CamRayCaster() {
     if (d_nodes_ != nullptr) {
@@ -282,8 +281,8 @@ public:
     ray_count_ = 0;
   };
 
-  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
-                   const Vec3 &light_dir, const float light_intensity,
+  void render_main(const float3 &camera_origin, const float *camera_world,
+                   const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame,
                    std::vector<float> &depth_map);
 
@@ -316,8 +315,8 @@ protected:
 class CamBlurRayCaster : public CamRayCaster {
 public:
   using CamRayCaster::CamRayCaster;
-  void render_main(const Vec3 &camera_origin, const Mat3 &camera_world,
-                   const Vec3 &light_dir, const float light_intensity,
+  void render_main(const float3 &camera_origin, const float *camera_world,
+                   const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame);
 };
 } // namespace dvs

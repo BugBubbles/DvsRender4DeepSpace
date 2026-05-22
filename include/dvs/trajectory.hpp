@@ -5,12 +5,17 @@
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <vector_types.h>
 
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 
 namespace dvs {
 
+inline Vec3 float3_to_vec3(const float3 &f) { return Vec3(f.x, f.y, f.z); }
+inline float3 vec3_to_float3(const Vec3 &v) {
+  return float3{v.x(), v.y(), v.z()};
+}
 /**
  * @brief 任意时间处的相机与光照状态。
  *

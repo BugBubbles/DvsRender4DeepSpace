@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
     }
 
     const Options opts = parse_args(argc, argv);
-    dvs::SceneBundle<dvs::Vec3> scene;
+    dvs::SceneBundle<float3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
@@ -141,11 +141,11 @@ int main(int argc, char **argv) {
 
     // 渲染第一帧以获取平均光强度，以初始化事件图
     const dvs::CameraTrajectoryState &state = traj.evaluate(start_time);
-    dvs::Vec3 camera_origin = state.position;
-    dvs::Mat3 camera_world = state.orientation;
-    dvs::Vec3 light_dir = state.light_direction;
-    dvs::Vec3 linear_velocity = state.linear_velocity;
-    dvs::Vec3 angular_velocity = state.angular_velocity;
+    float3 camera_origin = dvs::vec3_to_float3(state.position);
+    const float *camera_world = state.orientation.data();
+    float3 light_dir = dvs::vec3_to_float3(state.light_direction);
+    float3 linear_velocity = dvs::vec3_to_float3(state.linear_velocity);
+    float3 angular_velocity = dvs::vec3_to_float3(state.angular_velocity);
     float light_intensity = state.light_intensity;
     std::vector<float> light_frame(config.camera.width * config.camera.height);
     raycaster.render_main(camera_origin, camera_world, light_dir,
@@ -166,9 +166,9 @@ int main(int argc, char **argv) {
     for (size_t step = 0; step < total_steps; ++step) {
       float current_time = start_time + step * config.scene.time_resolution;
       const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
-      camera_origin = state.position;
-      camera_world = state.orientation;
-      light_dir = state.light_direction;
+      camera_origin = dvs::vec3_to_float3(state.position);
+      camera_world = state.orientation.data();
+      light_dir = dvs::vec3_to_float3(state.light_direction);
       light_intensity = state.light_intensity;
 
       raycaster.render_main(camera_origin, camera_world, light_dir,
