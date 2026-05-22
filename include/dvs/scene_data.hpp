@@ -5,12 +5,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
 
 namespace dvs {
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<Vec3, Uint3, Mat3> *out_bundle,
+                       SceneBundle<Vec3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &out_frames,
                        std::string *error_message);
 
 template <typename F>

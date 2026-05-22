@@ -31,7 +31,7 @@ __global__ void threshold_map_init_kernel(const int width, const int height,
   threshold_map[idx] = threshold * (1.0f + noise); // 添加噪声后的阈值
 }
 
-DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
+DvsRayCaster::DvsRayCaster(const SceneBundle<Vec3> &scene,
                            const Config &config, const int root_index)
     : root_index_(root_index), hapke_config_(config.hapke),
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),

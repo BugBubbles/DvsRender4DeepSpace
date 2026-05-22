@@ -146,7 +146,7 @@ bool load_mesh_data(const std::filesystem::path &dir,
 }
 
 bool load_frames_data(const std::filesystem::path &dir,
-                      std::vector<FrameData<Vec3, Mat3>> *out,
+                      std::vector<FrameData<Vec3, Mat3>> &out,
                       std::string *err) {
   std::vector<float> raw;
   if (!read_binary_f32(dir / "frames.bin", &raw, err)) {
@@ -160,7 +160,7 @@ bool load_frames_data(const std::filesystem::path &dir,
   }
 
   const std::size_t frame_count = raw.size() / kFrameStrideFloats;
-  out->resize(frame_count);
+  out.resize(frame_count);
   Mat4 camera_world;
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(frame_count);
@@ -175,7 +175,7 @@ bool load_frames_data(const std::filesystem::path &dir,
     frame.camera_world = camera_world.block<3, 3>(0, 0);
     frame.light_dir = Vec3(raw[o + 20], raw[o + 21], raw[o + 22]);
     frame.light_intensity = raw[o + 23];
-    (*out)[i] = frame;
+    out[i] = frame;
   }
   return true;
 }
@@ -228,7 +228,8 @@ build_triangles_from_mesh(const MeshData<Vec3, Uint3> &mesh) {
 }
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<Vec3, Uint3, Mat3> *out_bundle,
+                       SceneBundle<Vec3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message) {
   MeshData<Vec3, Uint3> mesh;
   if (!load_mesh_data(bundle_dir, &mesh, error_message)) {
@@ -239,8 +240,7 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
             << mesh.normals.size() << " normals, and " << mesh.indices.size()
             << " triangles" << std::endl;
 
-  std::vector<FrameData<Vec3, Mat3>> frames;
-  if (!load_frames_data(bundle_dir, &frames, error_message)) {
+  if (!load_frames_data(bundle_dir, frames, error_message)) {
     return false;
   }
   if (frames.empty()) {
@@ -250,19 +250,16 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
     return false;
   }
 
-  SceneBundle<Vec3, Uint3, Mat3> bundle;
-  bundle.frames = std::move(frames);
-  bundle.bvh_triangles = build_triangles_from_mesh(mesh);
-  bundle.bvh_nodes.clear();
+  out_bundle.bvh_triangles = build_triangles_from_mesh(mesh);
+  out_bundle.bvh_nodes.clear();
 
-  if (bundle.bvh_triangles.empty()) {
+  if (out_bundle.bvh_triangles.empty()) {
     if (error_message != nullptr) {
       *error_message = "mesh is empty after triangulation";
     }
     return false;
   }
 
-  *out_bundle = std::move(bundle);
   return true;
 }
 

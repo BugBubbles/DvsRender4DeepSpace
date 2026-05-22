@@ -84,7 +84,7 @@ __global__ void batch_blenderize_kernel(float *image, const int ray_count) {
   image[idx] = powf(intensity, 1.0f / gamma);
 }
 
-CamRayCaster::CamRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
+CamRayCaster::CamRayCaster(const SceneBundle<Vec3> &scene,
                            const Config &config, const int root_index)
     : root_index_(root_index), hapke_config_(config.hapke),
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),

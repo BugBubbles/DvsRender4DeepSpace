@@ -83,14 +83,16 @@ int main(int argc, char **argv) {
     }
 
     const Options opts = parse_args(argc, argv);
-    dvs::SceneBundle<dvs::Vec3, dvs::Uint3, dvs::Mat3> scene;
+    dvs::SceneBundle<dvs::Vec3> scene;
+    std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
     if (!error_message.empty()) {
       throw std::runtime_error("failed to load config: " + error_message);
       return 1;
     }
-    if (!dvs::load_scene_bundle(opts.scene_dir, &scene, &error_message)) {
+    if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
+                                &error_message)) {
       throw std::runtime_error("failed to load scene bundle: " + error_message);
       return 1;
     }
@@ -98,7 +100,7 @@ int main(int argc, char **argv) {
     std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
 
     // 使用样条曲线获取连续位姿轨迹
-    dvs::CameraTrajectory traj(scene.frames, config.scene.fps);
+    dvs::CameraTrajectory traj(frames, config.scene.fps);
     std::string motion_output_path = opts.output_dir + "/gt_motion.txt";
     std::string pose_output_path = opts.output_dir + "/gt_pose.txt";
     // 如果路径不存在，则创建目录
@@ -112,10 +114,10 @@ int main(int argc, char **argv) {
     motion_out << "#ts vx vy vz wx wy wz" << std::endl;
     pose_out << "#ts x y z qx qy qz qw" << std::endl;
 
-    size_t frame_count = std::min(
-        scene.frames.size(), static_cast<size_t>(config.scene.frame_count));
-    float end_time = scene.frames[frame_count - 1].timestamp;
-    float start_time = scene.frames.front().timestamp;
+    size_t frame_count =
+        std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
+    float end_time = frames[frame_count - 1].timestamp;
+    float start_time = frames.front().timestamp;
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) / config.scene.time_resolution));
 

@@ -93,8 +93,8 @@ __global__ void batch_render_kernel(
 
 class DvsRayCaster {
 public:
-  DvsRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-               const Config &config, const int root_index);
+  DvsRayCaster(const SceneBundle<Vec3> &scene, const Config &config,
+               const int root_index);
   ~DvsRayCaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);
@@ -236,8 +236,8 @@ private:
 
 class CamRayCaster {
 public:
-  CamRayCaster(const SceneBundle<Vec3, Uint3, Mat3> &scene,
-               const Config &config, const int root_index);
+  CamRayCaster(const SceneBundle<Vec3> &scene, const Config &config,
+               const int root_index);
   ~CamRayCaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);

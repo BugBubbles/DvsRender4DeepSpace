@@ -96,8 +96,7 @@ public:
   Config(const std::string &config_file, std::string &err);
 };
 
-template <typename float3, typename uint3, typename mat3> struct SceneBundle {
-  std::vector<FrameData<float3, mat3>> frames;
+template <typename float3> struct SceneBundle {
   std::vector<BVHNode<float3>> bvh_nodes;
   std::vector<Triangle<float3>> bvh_triangles;
 };
