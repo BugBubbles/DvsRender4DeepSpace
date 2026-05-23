@@ -38,11 +38,11 @@ int main(int argc, char **argv) {
       throw std::runtime_error("failed to load scene bundle: " + error_message);
       return 1;
     }
-    if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path, scene,
-                                &error_message)) {
-      throw std::runtime_error("failed to load scene: " + error_message);
-      return 1;
-    }
+    // if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path, scene,
+    //                             &error_message)) {
+    //   throw std::runtime_error("failed to load scene: " + error_message);
+    //   return 1;
+    // }
 
     std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
 
