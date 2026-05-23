@@ -1,4 +1,4 @@
-#include "dvs/helper_math.hpp"
+#include "helper_transform.hpp"
 #include "tools/build_from_raster.hpp"
 
 #include <cuda_runtime.h>
@@ -176,7 +176,6 @@ batch_build_vertices_kernel(const float *dem_data, const float *lats,
   }
 
   const int raster_idx = y * width + x;
-
   const float z = dem_data[raster_idx];
 
   // 高程无效则跳过
@@ -204,6 +203,114 @@ batch_build_vertices_kernel(const float *dem_data, const float *lats,
   vertices_hash[raster_idx] = static_cast<int>(vertex_idx);
 }
 
+__global__ void
+batch_build_vertices_kernel(const float *dem_data, const float *y_coords,
+                            const float *x_coords, const int width,
+                            const int height, float3 *vertices,
+                            int *vertice_count, int *vertices_hash) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (x >= static_cast<int>(width) || y >= static_cast<int>(height)) {
+    return;
+  }
+
+  const int raster_idx = y * width + x;
+  const float z = dem_data[raster_idx];
+
+  // 高程无效则跳过
+  if (!isfinite(z) || fabsf(z) > 1e8f) {
+    return;
+  }
+
+  const float y_coord = y_coords[y];
+  const float x_coord = x_coords[x];
+
+  const int vertex_idx = atomicAdd(vertice_count, 1);
+
+  if (vertex_idx >= static_cast<int>(width * height)) {
+    return;
+  }
+
+  vertices[vertex_idx] = make_float3(x_coord, y_coord, z);
+
+  vertices_hash[raster_idx] = static_cast<int>(vertex_idx);
+}
+
+__global__ void batch_build_vertices_kernel(
+    const float *dem_data, const float *albedo_data, const float *lats,
+    const float *lons, const float radii, const int width, const int height,
+    float3 *vertices, float *abledos, int *vertice_count, int *vertices_hash) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (x >= static_cast<int>(width) || y >= static_cast<int>(height)) {
+    return;
+  }
+
+  const int raster_idx = y * width + x;
+  const float z = dem_data[raster_idx];
+  const float albedo = albedo_data[raster_idx];
+
+  // 高程无效则跳过
+  if (!isfinite(z) || fabsf(z) > 1e8f || albedo < 0.0f || albedo > 1.0f) {
+    return;
+  }
+
+  const float lat = lats[y];
+  const float lon = lons[x];
+
+  // 经纬度无效则跳过
+  if (!isfinite(lat) || !isfinite(lon) || fabsf(lat) > 90.0f ||
+      fabsf(lon) > 360.0f) {
+    return;
+  }
+
+  const int vertex_idx = atomicAdd(vertice_count, 1);
+
+  if (vertex_idx >= static_cast<int>(width * height)) {
+    return;
+  }
+
+  vertices[vertex_idx] = latlon_to_xyz(radiansf(lat), radiansf(lon), z, radii);
+  abledos[vertex_idx] = albedo;
+
+  vertices_hash[raster_idx] = static_cast<int>(vertex_idx);
+}
+
+__global__ void batch_build_vertices_kernel(
+    const float *dem_data, const float *albedo_data, const float *y_coords,
+    const float *x_coords, const int width, const int height, float3 *vertices,
+    float *abledos, int *vertice_count, int *vertices_hash) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (x >= static_cast<int>(width) || y >= static_cast<int>(height)) {
+    return;
+  }
+
+  const int raster_idx = y * width + x;
+  const float z = dem_data[raster_idx];
+
+  // 高程无效则跳过
+  if (!isfinite(z) || fabsf(z) > 1e8f) {
+    return;
+  }
+
+  const float y_coord = y_coords[y];
+  const float x_coord = x_coords[x];
+
+  const int vertex_idx = atomicAdd(vertice_count, 1);
+
+  if (vertex_idx >= static_cast<int>(width * height)) {
+    return;
+  }
+
+  vertices[vertex_idx] = make_float3(x_coord, y_coord, z);
+  abledos[vertex_idx] = albedo_data[raster_idx];
+
+  vertices_hash[raster_idx] = static_cast<int>(vertex_idx);
+}
 /**
  * @brief 只构建三角形，不计算 normals。
  *
@@ -354,6 +461,9 @@ __global__ void batch_gather_vertex_normals_kernel(const int width,
   normals[my_vertex_id] = normal_acc / len;
 }
 
+/**
+ * @brief 从 raster 数据构建三角形网格，加载经纬度坐标
+ */
 __host__ void build_from_raster(const float *d_dem_data, const float *d_lats,
                                 const float *d_lons, const float radii,
                                 const int width, const int height,
@@ -368,12 +478,115 @@ __host__ void build_from_raster(const float *d_dem_data, const float *d_lats,
   int total_pixels = width * height;
   int *d_vertices_hash;
   cudaMalloc(&d_vertices_hash, total_pixels * sizeof(int));
-  cudaMemset(d_vertices_hash, 0xff, total_pixels * sizeof(int)); // -1 表示无效
+  cudaMemset(d_vertices_hash, 0xff,
+             total_pixels * sizeof(int)); // -1 表示无效值
 
   // 构建 vertices
   batch_build_vertices_kernel<<<grid_vertices, block_size>>>(
       d_dem_data, d_lats, d_lons, radii, width, height, d_vertices,
       d_vertice_count, d_vertices_hash);
+  // 构建 triangles
+  batch_build_triangles_kernel<<<grid_cells, block_size>>>(
+      width, height, d_vertices_hash, d_triangles, d_triangle_count);
+  // 计算 normals，得到的法线已经是单位向量
+  batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
+      width, height, d_vertices, d_vertices_hash, d_normals);
+
+  cudaFree(d_vertices_hash);
+}
+/**
+ * @brief 从 raster 数据构建三角形网格，加载平面坐标
+ */
+__host__ void build_from_raster(const float *d_dem_data,
+                                const float *d_y_coords,
+                                const float *d_x_coords, const int width,
+                                const int height, float3 *d_vertices,
+                                int *d_vertice_count, int3 *d_triangles,
+                                int *d_triangle_count, float3 *d_normals) {
+  dim3 block_size(16, 16);
+  dim3 grid_vertices((width + block_size.x - 1) / block_size.x,
+                     (height + block_size.y - 1) / block_size.y);
+  dim3 grid_cells((width - 1 + block_size.x - 1) / block_size.x,
+                  (height - 1 + block_size.y - 1) / block_size.y);
+  int total_pixels = width * height;
+  int *d_vertices_hash;
+  cudaMalloc(&d_vertices_hash, total_pixels * sizeof(int));
+  cudaMemset(d_vertices_hash, 0xff,
+             total_pixels * sizeof(int)); // -1 表示无效值
+
+  // 构建 vertices
+  batch_build_vertices_kernel<<<grid_vertices, block_size>>>(
+      d_dem_data, d_y_coords, d_x_coords, width, height, d_vertices,
+      d_vertice_count, d_vertices_hash);
+  // 构建 triangles
+  batch_build_triangles_kernel<<<grid_cells, block_size>>>(
+      width, height, d_vertices_hash, d_triangles, d_triangle_count);
+  // 计算 normals，得到的法线已经是单位向量
+  batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
+      width, height, d_vertices, d_vertices_hash, d_normals);
+
+  cudaFree(d_vertices_hash);
+}
+/**
+ * @brief 从 raster 数据构建三角形网格和反照率，加载经纬度坐标
+ */
+__host__ void build_from_raster(const float *d_dem_data,
+                                const float *d_albedo_data, const float *d_lats,
+                                const float *d_lons, const float radii,
+                                const int width, const int height,
+                                float3 *d_vertices, int *d_vertice_count,
+                                int3 *d_triangles, int *d_triangle_count,
+                                float3 *d_normals, float *d_albedos) {
+  dim3 block_size(16, 16);
+  dim3 grid_vertices((width + block_size.x - 1) / block_size.x,
+                     (height + block_size.y - 1) / block_size.y);
+  dim3 grid_cells((width - 1 + block_size.x - 1) / block_size.x,
+                  (height - 1 + block_size.y - 1) / block_size.y);
+  int total_pixels = width * height;
+  int *d_vertices_hash;
+  cudaMalloc(&d_vertices_hash, total_pixels * sizeof(int));
+  cudaMemset(d_vertices_hash, 0xff,
+             total_pixels * sizeof(int)); // -1 表示无效值
+
+  // 构建 vertices 和 albedos
+  batch_build_vertices_kernel<<<grid_vertices, block_size>>>(
+      d_dem_data, d_albedo_data, d_lats, d_lons, radii, width, height,
+      d_vertices, d_albedos, d_vertice_count, d_vertices_hash);
+
+  // 构建 triangles
+  batch_build_triangles_kernel<<<grid_cells, block_size>>>(
+      width, height, d_vertices_hash, d_triangles, d_triangle_count);
+  // 计算 normals，得到的法线已经是单位向量
+  batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
+      width, height, d_vertices, d_vertices_hash, d_normals);
+
+  cudaFree(d_vertices_hash);
+}
+
+/**
+ * @brief 从 raster 数据构建三角形网格和反照率，加载平面坐标
+ */
+__host__ void
+build_from_raster(const float *d_dem_data, const float *d_albedo_data,
+                  const float *d_y_coords, const float *d_x_coords,
+                  const int width, const int height, float3 *d_vertices,
+                  int *d_vertice_count, int3 *d_triangles,
+                  int *d_triangle_count, float3 *d_normals, float *d_albedos) {
+  dim3 block_size(16, 16);
+  dim3 grid_vertices((width + block_size.x - 1) / block_size.x,
+                     (height + block_size.y - 1) / block_size.y);
+  dim3 grid_cells((width - 1 + block_size.x - 1) / block_size.x,
+                  (height - 1 + block_size.y - 1) / block_size.y);
+  int total_pixels = width * height;
+  int *d_vertices_hash;
+  cudaMalloc(&d_vertices_hash, total_pixels * sizeof(int));
+  cudaMemset(d_vertices_hash, 0xff,
+             total_pixels * sizeof(int)); // -1 表示无效值
+
+  // 构建 vertices 和 albedos
+  batch_build_vertices_kernel<<<grid_vertices, block_size>>>(
+      d_dem_data, d_albedo_data, d_y_coords, d_x_coords, width, height,
+      d_vertices, d_albedos, d_vertice_count, d_vertices_hash);
   // 构建 triangles
   batch_build_triangles_kernel<<<grid_cells, block_size>>>(
       width, height, d_vertices_hash, d_triangles, d_triangle_count);

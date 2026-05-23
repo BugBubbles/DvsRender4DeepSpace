@@ -1,5 +1,4 @@
 #pragma once
-#include "dvs/helper_math.hpp"
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
 
@@ -17,28 +16,8 @@ inline __host__ __device__ float3 latlon_to_xyz(const float lat,
   return make_float3(x, y, z);
 }
 
-inline __host__ __device__ float3 rotation_vector(const float4 quaternion,
-                                                  const float3 vector) {
-  // 使用四元数旋转向量
-  float3 rot_mat_row0, rot_mat_row1, rot_mat_row2;
-  rot_mat_row0 = make_float3(
-      1 - 2 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z),
-      2 * (quaternion.x * quaternion.y - quaternion.z * quaternion.w),
-      2 * (quaternion.x * quaternion.z + quaternion.y * quaternion.w));
-  rot_mat_row1 = make_float3(
-      2 * (quaternion.x * quaternion.y + quaternion.z * quaternion.w),
-      1 - 2 * (quaternion.x * quaternion.x + quaternion.z * quaternion.z),
-      2 * (quaternion.y * quaternion.z - quaternion.x * quaternion.w));
-  rot_mat_row2 = make_float3(
-      2 * (quaternion.x * quaternion.z - quaternion.y * quaternion.w),
-      2 * (quaternion.y * quaternion.z + quaternion.x * quaternion.w),
-      1 - 2 * (quaternion.x * quaternion.x + quaternion.y * quaternion.y));
-
-  return make_float3(dot(rot_mat_row0, vector), dot(rot_mat_row1, vector),
-                     dot(rot_mat_row2, vector));
-}
 /**
- * @brief 构建三角形顶点，不含反照率
+ * @brief 构建三角形顶点，不含反照率，加载经纬度坐标
  * @param dem_data DEM数据
  * @param lats DEM数据对应的纬度数组
  * @param lons DEM数据对应的经度数组
@@ -58,7 +37,26 @@ __host__ void build_from_raster(const float *dem_data, const float *lats,
                                 float3 *normals);
 
 /**
- * @brief 构建三角形、法向量，含反照率
+ * @brief 构建三角形顶点，不含反照率，加载平面坐标
+ * @param dem_data DEM数据
+ * @param x_coords DEM数据对应的X坐标数组
+ * @param y_coords DEM数据对应的Y坐标数组
+ * @param width DEM数据的宽度
+ * @param height DEM数据的高度
+ * @param vertices 输出的顶点数组
+ * @param vertice_count 输出的顶点数量
+ * @param triangles 输出的三角形索引数组
+ * @param triangle_count 输出的三角形数量
+ * @param normals 输出的法向量数组
+ */
+__host__ void build_from_raster(const float *d_dem_data,
+                                const float *d_y_coords,
+                                const float *d_x_coords, const int width,
+                                const int height, float3 *d_vertices,
+                                int *d_vertice_count, int3 *d_triangles,
+                                int *d_triangle_count, float3 *d_normals);
+/**
+ * @brief 构建三角形、法向量，含反照率，加载经纬度坐标
  * @param dem_data DEM数据
  * @param albedo_data 反照率数据
  * @param lats DEM数据对应的纬度数组
@@ -79,7 +77,27 @@ __host__ void build_from_raster(const float *dem_data, const float *albedo_data,
                                 int *vertice_count, int3 *triangles,
                                 int *triangle_count, float3 *normals,
                                 float *albedos);
-
+/**
+ * @brief 构建三角形、法向量，含反照率，加载平面坐标
+ * @param dem_data DEM数据
+ * @param albedo_data 反照率数据
+ * @param x_coords DEM数据对应的X坐标数组
+ * @param y_coords DEM数据对应的Y坐标数组
+ * @param width DEM数据的宽度
+ * @param height DEM数据的高度
+ * @param vertices 输出的顶点数组
+ * @param vertice_count 输出的顶点数量
+ * @param triangles 输出的三角形索引数组
+ * @param triangle_count 输出的三角形数量
+ * @param normals 输出的法向量数组
+ * @param albedos 输出的反照率数组
+ */
+__host__ void
+build_from_raster(const float *d_dem_data, const float *d_albedo_data,
+                  const float *d_y_coords, const float *d_x_coords,
+                  const int width, const int height, float3 *d_vertices,
+                  int *d_vertice_count, int3 *d_triangles,
+                  int *d_triangle_count, float3 *d_normals, float *d_albedos);
 __global__ void apply_rigid_transform(float3 *vertices, const int vertice_count,
                                       const float3 translation,
                                       const float4 quaternion);

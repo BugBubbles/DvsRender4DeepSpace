@@ -9,7 +9,7 @@
 
 namespace tools {
 struct Imagery {
-  std::vector<float> data, lats, lons;
+  std::vector<float> data, lats, lons, x_coords, y_coords;
   int width;
   int height;
   float radii;
@@ -19,8 +19,6 @@ struct Imagery {
  * @param path 数据路径，支持tiff和IMG格式，单个波段
  * @param imagery 加载后的数据格式，形状为(height,
  * width)，每个元素对应一个像素值
- * @param latitude 纬度数据，形状为(height)，每个元素对应一个像素行
- * @param longitude 经度数据，形状为(width)，每个元素对应一个像素列
  * @return 加载成功返回true，失败返回false
  */
 inline bool loadImageryData(const std::string &path, Imagery &imagery) {
@@ -60,7 +58,21 @@ inline bool loadImageryData(const std::string &path, Imagery &imagery) {
     GDALClose(dataset);
     return false;
   }
+  // 加载平面坐标系
+  imagery.x_coords.resize(static_cast<std::size_t>(width));
+  imagery.y_coords.resize(static_cast<std::size_t>(height));
+#pragma omp parallel for
+  for (int j = 0; j < width; ++j) {
+    double x = gt[0] + (j + 0.5) * gt[1] + 0.5 * gt[2];
+    imagery.x_coords[j] = static_cast<float>(x);
+  }
+#pragma omp parallel for
+  for (int i = 0; i < height; ++i) {
+    double y = gt[3] + 0.5 * gt[4] + (i + 0.5) * gt[5];
+    imagery.y_coords[i] = static_cast<float>(y);
+  }
 
+  // 加载投影坐标系
   const OGRSpatialReference *src_srs = dataset->GetSpatialRef();
   OGRSpatialReference src_copy;
   if (src_srs == nullptr) {

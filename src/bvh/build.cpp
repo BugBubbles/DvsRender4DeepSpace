@@ -59,8 +59,8 @@ int BVHBuilder::build(const BVHBuildParams &params,
   out_nodes = std::move(ctx.nodes);
 
   end_time = (float)clock() / CLOCKS_PER_SEC;
-  printf("BVH build completed in %.2f seconds, root=%d\n",
-         end_time - start_time, root_index);
+  printf("BVH build: reordered triangles in %.2f seconds\n",
+         end_time - start_time);
 
   return root_index;
 }
