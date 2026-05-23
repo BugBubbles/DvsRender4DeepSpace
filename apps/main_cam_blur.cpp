@@ -1,7 +1,6 @@
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
-#include <fstream>
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <stdexcept>
@@ -15,78 +14,16 @@
 #include "dvs/scene_data.hpp"
 #include "dvs/scene_types.hpp"
 #include "dvs/trajectory.hpp"
-
-namespace {
-
-struct Options {
-  std::string scene_dir;
-  std::string output_dir = "./output";
-  std::string config_path = "./config/default.yaml";
-  float end_time = std::numeric_limits<float>::max();
-};
-
-void print_usage(const char *prog) {
-  std::cout << "Usage: " << prog << " --scene_dir <bundle_dir> [options]\n"
-            << "Options:\n"
-            << "  --output <path>            output images file (default: ./)\n"
-            << "  --config <path>            path to YAML config file "
-            << std::endl;
-}
-
-float parse_float_arg(const char *key, const std::string &value) {
-  try {
-    return std::stof(value);
-  } catch (const std::exception &) {
-    throw std::runtime_error(std::string("invalid float for ") + key + ": " +
-                             value);
-  }
-}
-
-Options parse_args(int argc, char **argv) {
-  Options opts;
-  for (int i = 1; i < argc; ++i) {
-    const std::string arg = argv[i];
-    auto require_value = [&](const char *key) -> std::string {
-      if (i + 1 >= argc) {
-        throw std::runtime_error(std::string("missing value for ") + key);
-      }
-      return std::string(argv[++i]);
-    };
-
-    if (arg == "--scene_dir") {
-      opts.scene_dir = require_value("--scene_dir");
-    } else if (arg == "--output") {
-      opts.output_dir = require_value("--output");
-    } else if (arg == "--config") {
-      opts.config_path = require_value("--config");
-    } else if (arg == "--help" || arg == "-h") {
-      print_usage(argv[0]);
-      std::exit(0);
-    } else {
-      throw std::runtime_error("unknown argument: " + arg);
-    }
-  }
-
-  if (opts.scene_dir.empty()) {
-    throw std::runtime_error("--scene_dir is required");
-  }
-  std::ifstream config_in(opts.config_path);
-  if (!config_in.good()) {
-    throw std::runtime_error("failed to open config file: " + opts.config_path);
-  }
-  return opts;
-}
-
-} // namespace
+#include "tools/cli.hpp"
 
 int main(int argc, char **argv) {
   try {
     if (argc <= 1) {
-      print_usage(argv[0]);
+      dvs::Options::print_usage(argv[0]);
       return 1;
     }
 
-    const Options opts = parse_args(argc, argv);
+    const dvs::Options opts(argc, argv);
     dvs::SceneBundle<float3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;

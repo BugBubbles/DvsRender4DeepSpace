@@ -12,6 +12,7 @@ find_package(CUDAToolkit REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(GDAL REQUIRED)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
@@ -48,6 +49,7 @@ target_include_directories(dvs_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${EIGEN3_INCLUDE_DIR}
+        ${GDAL_INCLUDE_DIRS}
 )
 
 target_link_libraries(dvs_core
@@ -55,6 +57,7 @@ target_link_libraries(dvs_core
         OpenMP::OpenMP_CXX
         Eigen3::Eigen
         ${OpenCV_LIBS}
+        ${GDAL_LIBRARIES}
 )
 
 file (GLOB_RECURSE CUDA_SOURCES "src/*.cu")
