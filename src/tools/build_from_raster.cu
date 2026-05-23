@@ -35,7 +35,8 @@ __device__ inline bool is_valid_vec3(const float3 &v) {
  */
 __device__ inline void accumulate_triangle_normal_for_vertex(
     const int target_vid, const int tri_a, const int tri_b, const int tri_c,
-    const float3 *vertices, float3 &normal_acc) {
+    const float3 *vertices, float3 &normal_acc,
+    NormalOrientationMode orient_mode) {
   if (target_vid != tri_a && target_vid != tri_b && target_vid != tri_c) {
     return;
   }
@@ -101,10 +102,15 @@ __device__ inline void accumulate_triangle_normal_for_vertex(
    * 如果你的三角形绕序已经稳定且确认朝外，可以删除这段。
    * 对球形 DEM 来说，用 dot(face_normal, p_target) 判断朝向通常比较稳。
    */
-  if (dot(face_normal, p_target) < 0.0f) {
-    face_normal = face_normal * -1.0f;
+  if (orient_mode == NORMAL_ORIENT_SPHERE_OUTWARD) {
+    if (dot(face_normal, p_target) < 0.0f) {
+      face_normal = face_normal * -1.0f;
+    }
+  } else if (orient_mode == NORMAL_ORIENT_PLANAR_Z_UP) {
+    if (face_normal.z < 0.0f) {
+      face_normal = face_normal * -1.0f;
+    }
   }
-
   normal_acc += face_normal * angle_weight;
 }
 
@@ -378,11 +384,10 @@ __global__ void batch_build_triangles_kernel(const int width, const int height,
  *   T1 = v1, v3, v2
  *   T2 = v2, v3, v4
  */
-__global__ void batch_gather_vertex_normals_kernel(const int width,
-                                                   const int height,
-                                                   const float3 *vertices,
-                                                   const int *vertices_hash,
-                                                   float3 *normals) {
+__global__ void batch_gather_vertex_normals_kernel(
+    const int width, const int height, const float3 *vertices,
+    const int *vertices_hash, NormalOrientationMode orient_mode,
+    float3 *normals) {
   const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
   const int y = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
 
@@ -444,10 +449,12 @@ __global__ void batch_gather_vertex_normals_kernel(const int width,
        *   T2 = v2, v3, v4
        */
       accumulate_triangle_normal_for_vertex(my_vertex_id, tri_v1, tri_v3,
-                                            tri_v2, vertices, normal_acc);
+                                            tri_v2, vertices, normal_acc,
+                                            orient_mode);
 
       accumulate_triangle_normal_for_vertex(my_vertex_id, tri_v2, tri_v3,
-                                            tri_v4, vertices, normal_acc);
+                                            tri_v4, vertices, normal_acc,
+                                            orient_mode);
     }
   }
 
@@ -490,7 +497,8 @@ __host__ void build_from_raster(const float *d_dem_data, const float *d_lats,
       width, height, d_vertices_hash, d_triangles, d_triangle_count);
   // 计算 normals，得到的法线已经是单位向量
   batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
-      width, height, d_vertices, d_vertices_hash, d_normals);
+      width, height, d_vertices, d_vertices_hash, NORMAL_ORIENT_SPHERE_OUTWARD,
+      d_normals);
 
   cudaFree(d_vertices_hash);
 }
@@ -523,7 +531,8 @@ __host__ void build_from_raster(const float *d_dem_data,
       width, height, d_vertices_hash, d_triangles, d_triangle_count);
   // 计算 normals，得到的法线已经是单位向量
   batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
-      width, height, d_vertices, d_vertices_hash, d_normals);
+      width, height, d_vertices, d_vertices_hash, NORMAL_ORIENT_PLANAR_Z_UP,
+      d_normals);
 
   cudaFree(d_vertices_hash);
 }
@@ -558,7 +567,8 @@ __host__ void build_from_raster(const float *d_dem_data,
       width, height, d_vertices_hash, d_triangles, d_triangle_count);
   // 计算 normals，得到的法线已经是单位向量
   batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
-      width, height, d_vertices, d_vertices_hash, d_normals);
+      width, height, d_vertices, d_vertices_hash, NORMAL_ORIENT_SPHERE_OUTWARD,
+      d_normals);
 
   cudaFree(d_vertices_hash);
 }
@@ -592,7 +602,8 @@ build_from_raster(const float *d_dem_data, const float *d_albedo_data,
       width, height, d_vertices_hash, d_triangles, d_triangle_count);
   // 计算 normals，得到的法线已经是单位向量
   batch_gather_vertex_normals_kernel<<<grid_vertices, block_size>>>(
-      width, height, d_vertices, d_vertices_hash, d_normals);
+      width, height, d_vertices, d_vertices_hash, NORMAL_ORIENT_PLANAR_Z_UP,
+      d_normals);
 
   cudaFree(d_vertices_hash);
 }

@@ -5,6 +5,12 @@
 // 从DEM数据中构建三角形、法向量以及必要的反照率信息，并可对当前三维坐标进行必要的刚体变换
 namespace tools {
 
+enum NormalOrientationMode {
+  NORMAL_ORIENT_NONE,
+  NORMAL_ORIENT_PLANAR_Z_UP,
+  NORMAL_ORIENT_SPHERE_OUTWARD
+};
+
 inline __host__ __device__ float3 latlon_to_xyz(const float lat,
                                                 const float lon,
                                                 const float alt,
