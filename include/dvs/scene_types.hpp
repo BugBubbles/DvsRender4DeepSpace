@@ -44,7 +44,7 @@ template <typename float3> struct Intersection {
 };
 
 template <typename float3, typename mat3> struct FrameData {
-  float timestamp = 0.0f;
+  int frame_index = 0;
   float3 camera_origin;
   mat3 camera_world;
   float3 light_dir;

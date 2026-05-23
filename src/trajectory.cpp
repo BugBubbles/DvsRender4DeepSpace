@@ -647,7 +647,7 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
 
   bool timestamps_strict = true;
   for (std::size_t i = 0; i < n; ++i) {
-    times[i] = frames[i].timestamp;
+    times[i] = static_cast<float>(frames[i].frame_index) / fps_;
 
     if (i > 0 && !(times[i] > times[i - 1])) {
       timestamps_strict = false;

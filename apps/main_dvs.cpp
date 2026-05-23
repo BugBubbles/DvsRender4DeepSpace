@@ -31,12 +31,24 @@ int main(int argc, char **argv) {
       throw std::runtime_error("failed to load config: " + error_message);
       return 1;
     }
-    if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
-                                &error_message)) {
-      throw std::runtime_error("failed to load scene bundle: " + error_message);
-      return 1;
-    }
 
+    if (std::filesystem::exists(opts.dem_path) &&
+        std::filesystem::exists(opts.albedo_path) &&
+        std::filesystem::exists(opts.traj_path)) {
+      if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path,
+                                  opts.traj_path, scene, frames,
+                                  &error_message)) {
+        throw std::runtime_error("failed to load scene: " + error_message);
+        return 1;
+      }
+    } else {
+      if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
+                                  &error_message)) {
+        throw std::runtime_error("failed to load scene bundle: " +
+                                 error_message);
+        return 1;
+      }
+    }
     std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
 
     // 使用样条曲线获取连续位姿轨迹
@@ -61,8 +73,10 @@ int main(int argc, char **argv) {
 
     size_t frame_count =
         std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
-    float end_time = frames[frame_count - 1].timestamp;
-    float start_time = frames.front().timestamp;
+    float end_time = static_cast<float>(frames[frame_count - 1].frame_index) /
+                     config.scene.fps;
+    float start_time =
+        static_cast<float>(frames.front().frame_index) / config.scene.fps;
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) / config.scene.time_resolution));
 

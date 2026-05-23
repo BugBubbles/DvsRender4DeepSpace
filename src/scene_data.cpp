@@ -171,7 +171,7 @@ bool load_frames_from_binary(const std::filesystem::path &dir,
        ++i) {
     const std::size_t o = i * kFrameStrideFloats;
     FrameData<Vec3, Mat3> frame;
-    frame.timestamp = raw[o + 0];
+    frame.frame_index = raw[o + 0];
     frame.camera_origin = Vec3(raw[o + 1], raw[o + 2], raw[o + 3]);
     for (int j = 0; j < 16; ++j) {
       camera_world(j / 4, j % 4) = raw[o + 4 + j];
@@ -292,7 +292,7 @@ bool load_frames_from_text(const std::filesystem::path &path,
     }
     std::istringstream iss(line);
     FrameData<Vec3, Mat3> frame;
-    if (!(iss >> frame.timestamp >> frame.camera_origin.x() >>
+    if (!(iss >> frame.frame_index >> frame.camera_origin.x() >>
           frame.camera_origin.y() >> frame.camera_origin.z() >> qx >> qy >>
           qz >> qw >> frame.light_dir.x() >> frame.light_dir.y() >>
           frame.light_dir.z() >> frame.light_intensity)) {
@@ -348,7 +348,7 @@ bool load_scene_bundle(const std::filesystem::path &dem_path,
   }
   if (frames.empty()) {
     if (error_message != nullptr) {
-      *error_message = "frames.bin is empty";
+      *error_message = "trajectory file is empty";
     }
     return false;
   }
