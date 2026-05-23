@@ -16,6 +16,18 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
                        std::vector<FrameData<Vec3, Mat3>> &out_frames,
                        std::string *error_message);
 
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &albedo_path,
+                       SceneBundle<float3> &out_bundle,
+                       std::string *error_message);
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &albedo_path,
+                       const std::filesystem::path &traj_path,
+                       SceneBundle<float3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &frames,
+                       std::string *error_message);
+
 template <typename F>
 bool extract_required(const std::unordered_map<std::string, std::string> &map,
                       const std::string &section_name, const std::string &key,

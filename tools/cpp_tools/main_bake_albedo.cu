@@ -83,88 +83,6 @@ Options parse_args(int argc, char **argv) {
   return opts;
 }
 
-__device__ void find_closest_pixel(const float *lats, const float height,
-                                   const float *lons, const float width,
-                                   const float target_lat,
-                                   const float target_lon, int2 *out_lat_idx,
-                                   int2 *out_lon_idx) {
-  // 二分法查找最接近 target_lat 和 target_lon 的像素位置
-  // 查找纬度，注意纬度坐标是倒序的，所以比较时需要反过来
-  int left = 0, right = height - 1;
-  while (left <= right) {
-    int mid = left + (right - left) / 2;
-    if (lats[mid] > target_lat) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-  if (left >= height || right < 0) {
-    *out_lat_idx = make_int2(-1, -1); // 无效索引
-  } else {
-    *out_lat_idx = make_int2(left, right);
-  }
-  // 查找经度
-  left = 0;
-  right = width - 1;
-  while (left <= right) {
-    int mid = left + (right - left) / 2;
-    if (lons[mid] < target_lon) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-  if (left >= width || right < 0) {
-    *out_lon_idx = make_int2(-1, -1); // 无效索引
-  } else {
-    *out_lon_idx = make_int2(right, left);
-  }
-}
-
-__global__ void batch_align_kernel(const float *ref_rst, const float *ref_lats,
-                                   const float *ref_lons, const int ref_width,
-                                   const int ref_height, const float *src_rst,
-                                   const float *src_lats, const float *src_lons,
-                                   const int src_width, const int src_height,
-                                   float *aligned_src_rst) {
-  int x = blockIdx.x * blockDim.x + threadIdx.x;
-  int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= ref_width || y >= ref_height) {
-    return;
-  }
-  int idx = y * ref_width + x;
-
-  float ref_lat = ref_lats[y];
-  float ref_lon = ref_lons[x];
-
-  // 二分法查找 src_rst 中最接近 ref_lat 和 ref_lon 的像素位置
-  int2 src_lat_idx, src_lon_idx;
-  find_closest_pixel(src_lats, src_height, src_lons, src_width, ref_lat,
-                     ref_lon, &src_lat_idx, &src_lon_idx);
-
-  if (src_lat_idx.x == -1 || src_lon_idx.x == -1) {
-    aligned_src_rst[idx] = 0.0f; // 无效位置，设置为0
-    return;
-  }
-
-  // 双线性插值计算对齐后的像素值
-  float lat1 = src_lats[src_lat_idx.y];
-  float lat2 = src_lats[src_lat_idx.x];
-  float lon1 = src_lons[src_lon_idx.y];
-  float lon2 = src_lons[src_lon_idx.x];
-  float q11 = src_rst[src_lat_idx.y * src_width + src_lon_idx.y];
-  float q12 = src_rst[src_lat_idx.y * src_width + src_lon_idx.x];
-  float q21 = src_rst[src_lat_idx.x * src_width + src_lon_idx.y];
-  float q22 = src_rst[src_lat_idx.x * src_width + src_lon_idx.x];
-
-  float aligned_value = (q11 * (lat2 - ref_lat) * (lon2 - ref_lon) +
-                         q21 * (ref_lat - lat1) * (lon2 - ref_lon) +
-                         q12 * (lat2 - ref_lat) * (ref_lon - lon1) +
-                         q22 * (ref_lat - lat1) * (ref_lon - lon1)) /
-                        ((lat2 - lat1) * (lon2 - lon1));
-  aligned_src_rst[idx] = aligned_value;
-}
 } // namespace tools
 int main(int argc, char *argv[]) {
   try {
@@ -233,9 +151,6 @@ int main(int argc, char *argv[]) {
         d_dem, d_dem_ys, d_dem_xs, dem.width, dem.height, d_albedo, d_albedo_ys,
         d_albedo_xs, albedo.width, albedo.height, d_aligned_albedo);
     cudaDeviceSynchronize();
-    // 将对齐后的 albedo 数据从 GPU 复制回 CPU，并保存为 TIFF 文件
-    cudaMemcpy(albedo.data.data(), d_aligned_albedo, dem_size * sizeof(float),
-               cudaMemcpyDeviceToHost);
     float3 *d_vertices, *d_normals;
     float *d_albs;
     int3 *d_triangles;
@@ -294,10 +209,11 @@ int main(int argc, char *argv[]) {
     tools::apply_rigid_transform<<<vertex_grid_size, thread_count>>>(
         d_normals, h_vertice_count, make_float3(0.0f, 0.0f, 0.0f), rotation);
     // 修改为当前dvs版本的三角形数据结构
-    dvs::Triangle<float3> *d_tris;
-    cudaMalloc(&d_tris, h_triangle_count * sizeof(dvs::Triangle<float3>));
-    tools::trianglize<<<vertex_grid_size, thread_count>>>(
-        d_vertices, d_normals, d_triangles, h_triangle_count, d_tris);
+    // dvs::Triangle<float3> *d_tris;
+    // cudaMalloc(&d_tris, h_triangle_count * sizeof(dvs::Triangle<float3>));
+    // int tri_grid_size = (h_triangle_count + thread_count - 1) / thread_count;
+    // tools::trianglize<<<tri_grid_size, thread_count>>>(
+    //     d_vertices, d_normals, d_triangles, h_triangle_count, d_tris);
 
     // 将顶点、法线、albedo 从 GPU 复制回 CPU，并保存为输出文件
     std::vector<float3> h_vertices(h_vertice_count);
@@ -319,14 +235,14 @@ int main(int argc, char *argv[]) {
     std::cout << "First normal after transform: (" << h_normals[0].x << ", "
               << h_normals[0].y << ", " << h_normals[0].z << ")" << std::endl;
 
-    std::vector<dvs::Triangle<float3>> h_tris(h_triangle_count);
+    // std::vector<dvs::Triangle<float3>> h_tris(h_triangle_count);
     std::vector<float> h_albs(h_vertice_count);
-    cudaMemcpy(h_tris.data(), d_tris,
-               h_triangle_count * sizeof(dvs::Triangle<float3>),
-               cudaMemcpyDeviceToHost);
+    // cudaMemcpy(h_tris.data(), d_tris,
+    //            h_triangle_count * sizeof(dvs::Triangle<float3>),
+    //            cudaMemcpyDeviceToHost);
     cudaMemcpy(h_albs.data(), d_albs, h_vertice_count * sizeof(float),
                cudaMemcpyDeviceToHost);
-    cudaFree(d_tris);
+    // cudaFree(d_tris);
     cudaFree(d_albs);
     std::cout << "Converted triangles to DVS format." << std::endl;
 

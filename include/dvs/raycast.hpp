@@ -285,6 +285,10 @@ public:
                    const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame,
                    std::vector<float> &depth_map);
+  
+  void render_main(const float3 &camera_origin, const float *camera_world,
+                   const float3 &light_dir, const float light_intensity,
+                   std::vector<float> &light_frame);
 
 protected:
   int node_count_ = 0;

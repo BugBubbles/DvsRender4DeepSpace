@@ -1,9 +1,11 @@
 #include "dvs/scene_data.hpp"
 #include "dvs/scene_types.hpp"
 #include "helper_math.hpp"
+#include "tools/build_from_raster.hpp"
 
 #include <cctype>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector_types.h>
@@ -147,9 +149,9 @@ bool load_mesh_data(const std::filesystem::path &dir,
   return true;
 }
 
-bool load_frames_data(const std::filesystem::path &dir,
-                      std::vector<FrameData<Vec3, Mat3>> &out,
-                      std::string *err) {
+bool load_frames_from_binary(const std::filesystem::path &dir,
+                             std::vector<FrameData<Vec3, Mat3>> &out,
+                             std::string *err) {
   std::vector<float> raw;
   if (!read_binary_f32(dir / "frames.bin", &raw, err)) {
     return false;
@@ -237,7 +239,7 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
             << mesh.normals.size() << " normals, and " << mesh.indices.size()
             << " triangles" << std::endl;
 
-  if (!load_frames_data(bundle_dir, frames, error_message)) {
+  if (!load_frames_from_binary(bundle_dir, frames, error_message)) {
     return false;
   }
   if (frames.empty()) {
@@ -260,4 +262,106 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
   return true;
 }
 
+bool load_frames_from_text(const std::filesystem::path &path,
+                           std::vector<FrameData<Vec3, Mat3>> &out,
+                           std::string *err) {
+  std::vector<float> raw;
+  if (!std::filesystem::exists(path)) {
+    if (err != nullptr) {
+      *err = "file does not exist: " + path.string();
+    }
+    return false;
+  }
+  std::ifstream fin(path);
+  if (!fin) {
+    if (err != nullptr) {
+      *err = "failed to open " + path.string();
+    }
+    return false;
+  }
+  Mat4 camera_world;
+  float qx, qy, qz, qw;
+
+  // 读取文件，存储格式是：frame_idx x y z qx qy qz qw light_dir_x light_dir_y
+  // light_dir_z light_intensity
+  std::string line;
+  while (std::getline(fin, line)) {
+    line = trim(line);
+    if (line.empty()) {
+      continue;
+    }
+    std::istringstream iss(line);
+    FrameData<Vec3, Mat3> frame;
+    if (!(iss >> frame.timestamp >> frame.camera_origin.x() >>
+          frame.camera_origin.y() >> frame.camera_origin.z() >> qx >> qy >>
+          qz >> qw >> frame.light_dir.x() >> frame.light_dir.y() >>
+          frame.light_dir.z() >> frame.light_intensity)) {
+      if (err != nullptr) {
+        *err = "failed to parse camera orientation in line: " + line;
+      }
+      return false;
+    }
+    // 将四元数转换为旋转矩阵，使用Eigen的API
+    Eigen::Quaternionf q(qw, qx, qy, qz);
+    frame.camera_world = q.toRotationMatrix();
+    out.push_back(frame);
+  }
+  return true;
+}
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &albedo_path,
+                       SceneBundle<float3> &out_bundle,
+                       std::string *error_message) {
+  std::vector<float> albedos;
+  if (!tools::load_from_raster(dem_path.string(), albedo_path.string(),
+                               out_bundle.bvh_triangles, albedos)) {
+    return false;
+  }
+
+  out_bundle.bvh_nodes.clear();
+
+  if (out_bundle.bvh_triangles.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "mesh is empty after triangulation";
+    }
+    return false;
+  }
+
+  return true;
+}
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &albedo_path,
+                       const std::filesystem::path &traj_path,
+                       SceneBundle<float3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &frames,
+                       std::string *error_message) {
+  std::vector<Triangle<float3>> triangles;
+  std::vector<float> albedos;
+  if (!tools::load_from_raster(dem_path.string(), albedo_path.string(),
+                               triangles, albedos)) {
+    return false;
+  }
+
+  if (!load_frames_from_text(traj_path, frames, error_message)) {
+    return false;
+  }
+  if (frames.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "frames.bin is empty";
+    }
+    return false;
+  }
+  out_bundle.bvh_triangles = std::move(triangles);
+  out_bundle.bvh_nodes.clear();
+
+  if (out_bundle.bvh_triangles.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "mesh is empty after triangulation";
+    }
+    return false;
+  }
+
+  return true;
+}
 } // namespace dvs

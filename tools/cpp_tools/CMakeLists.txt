@@ -1,20 +1,22 @@
 # 设置可执行文件输出目录为 build/bin
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin/tools)
-find_package(GDAL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(READLINE REQUIRED readline)
 
 # 定义一个函数来简化添加测试可执行文件
 function(add_tool_executable TARGET_NAME SOURCE_FILE)
     add_executable(${TARGET_NAME} ${SOURCE_FILE})
     target_include_directories(${TARGET_NAME}
     PRIVATE
-        ${GDAL_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${READLINE_INCLUDE_DIRS}
 )
     target_link_libraries(${TARGET_NAME}
         PRIVATE
-        ${GDAL_LIBRARIES}
         dvs_core
         dvs_cuda
+        ${READLINE_LIBRARIES}
+        ncurses
     )
     # 可执行文件会自动输出到 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} (build/bin)
 endfunction()
