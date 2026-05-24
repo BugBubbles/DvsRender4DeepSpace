@@ -123,7 +123,6 @@ int main(int argc, char **argv) {
     std::cout << "  list                - List current parameters" << std::endl;
     std::cout << "  write               - Write down current parameters"
               << std::endl;
-    std::cout << "  render              - Render current frame " << std::endl;
     std::cout
         << "  left/right/up/down  - Move camera in the corresponding direction"
         << std::endl;
@@ -136,8 +135,7 @@ int main(int argc, char **argv) {
     while (true) {
       std::string line = tools::read_command_line("traj> ");
       if (line.empty()) {
-        std::cout << "\n";
-        break;
+        continue;
       }
 
       std::istringstream iss(line);
@@ -156,7 +154,6 @@ int main(int argc, char **argv) {
         std::cout << "  intensity <value>\n";
         std::cout << "  list\n";
         std::cout << "  write\n";
-        std::cout << "  render\n";
         std::cout << "  l(eft)/r(ight)/u(p)/d(own)/f(ront)/b(ack)\n";
         std::cout << "  move <v>\n";
         std::cout << "  quit / exit\n";
@@ -203,10 +200,6 @@ int main(int argc, char **argv) {
         }
 
         std::cout << "Position updated to: " << position.transpose() << "\n";
-        tools::render_frame(position, rotation, light_dir, light_intensity,
-                            raycaster, config, image_output_dir,
-                            light_frame_float, light_frame_uint8);
-
       } else if (command == "idx") {
         if (!(iss >> frame_idx)) {
           std::cout << "Usage: idx <frame_index>\n";
@@ -253,6 +246,7 @@ int main(int argc, char **argv) {
         std::cout << "Rotation: " << rotation.transpose() << "\n";
         std::cout << "Light Direction: " << light_dir.transpose() << "\n";
         std::cout << "Light Intensity: " << light_intensity << "\n";
+        continue;
       } else if (command == "write") {
 
         Eigen::Quaternionf quat;
@@ -271,14 +265,14 @@ int main(int argc, char **argv) {
         traj_out.flush();
         std::cout << "Frame [" << frame_idx
                   << "] written to trajectory file.\n";
-      } else if (command == "render") {
-
-        tools::render_frame(position, rotation, light_dir, light_intensity,
-                            raycaster, config, image_output_dir,
-                            light_frame_float, light_frame_uint8);
+        continue;
       } else {
         std::cout << "Unknown command. Type 'help' for help.\n";
+        continue;
       }
+      tools::render_frame(position, rotation, light_dir, light_intensity,
+                          raycaster, config, image_output_dir,
+                          light_frame_float, light_frame_uint8);
     }
     traj_out.close();
     return 0;
