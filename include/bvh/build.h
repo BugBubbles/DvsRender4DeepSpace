@@ -19,6 +19,9 @@ public:
   static int build(const BVHBuildParams &params,
                    std::vector<BVHNode<float3>> &out_nodes,
                    std::vector<Triangle<float3>> &triangles);
+  static int build(const BVHBuildParams &params,
+                   std::vector<BVHNode<float3>> &out_nodes,
+                   std::vector<uint3> &indices, std::vector<float3> &vertices);
   static void validate(const std::vector<BVHNode<float3>> &nodes, int root);
 
 private:

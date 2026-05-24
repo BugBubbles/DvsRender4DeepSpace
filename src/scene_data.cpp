@@ -227,7 +227,7 @@ void build_triangles_from_mesh(const MeshData<float3, uint3> &mesh,
 }
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message) {
   MeshData<float3, uint3> mesh;
@@ -249,7 +249,9 @@ bool load_scene_bundle(const std::filesystem::path &bundle_dir,
     return false;
   }
 
-  build_triangles_from_mesh(mesh, out_bundle.bvh_triangles);
+  out_bundle.bvh_triangles = std::move(mesh.indices);
+  out_bundle.vertices = std::move(mesh.vertices);
+  out_bundle.normals = std::move(mesh.normals);
   out_bundle.bvh_nodes.clear();
 
   if (out_bundle.bvh_triangles.empty()) {
@@ -310,14 +312,16 @@ bool load_frames_from_text(const std::filesystem::path &path,
 }
 bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &albedo_path,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
                        std::string *error_message) {
-  std::vector<float> albedos;
   if (!tools::load_from_raster(dem_path.string(), albedo_path.string(),
-                               out_bundle.bvh_triangles, albedos)) {
+                               out_bundle.vertices, out_bundle.normals,
+                               out_bundle.bvh_triangles, out_bundle.albedos)) {
     return false;
   }
-
+  if (!out_bundle.albedos.empty()) {
+    out_bundle.use_albedo = true;
+  }
   out_bundle.bvh_nodes.clear();
 
   if (out_bundle.bvh_triangles.empty()) {
@@ -333,13 +337,12 @@ bool load_scene_bundle(const std::filesystem::path &dem_path,
 bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &albedo_path,
                        const std::filesystem::path &traj_path,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message) {
-  std::vector<Triangle<float3>> triangles;
-  std::vector<float> albedos;
   if (!tools::load_from_raster(dem_path.string(), albedo_path.string(),
-                               triangles, albedos)) {
+                               out_bundle.vertices, out_bundle.normals,
+                               out_bundle.bvh_triangles, out_bundle.albedos)) {
     return false;
   }
 
@@ -352,7 +355,43 @@ bool load_scene_bundle(const std::filesystem::path &dem_path,
     }
     return false;
   }
-  out_bundle.bvh_triangles = std::move(triangles);
+  if (!out_bundle.albedos.empty()) {
+    out_bundle.use_albedo = true;
+  }
+  out_bundle.bvh_nodes.clear();
+
+  if (out_bundle.bvh_triangles.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "mesh is empty after triangulation";
+    }
+    return false;
+  }
+
+  return true;
+}
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &traj_path,
+                       SceneBundle<float3, uint3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &frames,
+                       std::string *error_message) {
+  if (!tools::load_from_raster(dem_path.string(), out_bundle.vertices,
+                               out_bundle.normals, out_bundle.bvh_triangles)) {
+    return false;
+  }
+
+  if (!load_frames_from_text(traj_path, frames, error_message)) {
+    return false;
+  }
+  if (frames.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "trajectory file is empty";
+    }
+    return false;
+  }
+  if (!out_bundle.albedos.empty()) {
+    out_bundle.use_albedo = true;
+  }
   out_bundle.bvh_nodes.clear();
 
   if (out_bundle.bvh_triangles.empty()) {

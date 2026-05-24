@@ -69,7 +69,7 @@ public:
     }
 
     if (scene_dir.empty()) {
-      if (dem_path.empty() || albedo_path.empty() || traj_path.empty()) {
+      if (dem_path.empty() || traj_path.empty()) {
         throw std::runtime_error("either --scene_dir or all --dem, --albedo "
                                  "and --traj are required");
       }

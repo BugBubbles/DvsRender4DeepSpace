@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "device_types.h"
 #include "dvs/dvs_base.hpp"
 #include "dvs/scene_types.hpp"
 #include <cuda_runtime.h>
@@ -31,7 +32,8 @@ __global__ void init_rand_states(curandState *states, int count, unsigned seed);
  */
 __global__ void
 batch_intersect_kernel(const BVHNode<float3> *nodes, int root_index,
-                       const Triangle<float3> *triangles, const float3 *rays,
+                       const float3 *vertices, const float3 *normals,
+                       const uint3 *triangles, const float3 *rays,
                        const float3 ray_origin, int ray_count,
                        Intersection<float3> *out_hits, float *depth_map);
 /**
@@ -69,9 +71,9 @@ __global__ void view_direction_batch_kernel(
  * @param depth_map 输出深度图数组
  */
 void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
-                                const Triangle<float3> *triangles,
-                                const float3 *rays, const float3 ray_origin,
-                                const int ray_count,
+                                const float3 *vertices, const float3 *normals,
+                                const uint3 *triangles, const float3 *rays,
+                                const float3 ray_origin, const int ray_count,
                                 Intersection<float3> *out_hits,
                                 float *depth_map);
 /**
@@ -85,23 +87,42 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
  * @param out_light_intensity 输出光照强度数组
  */
 __global__ void batch_render_kernel(
-    const Intersection<float3> *out_hits, const Triangle<float3> *triangles,
-    const float3 *rays, const float3 ray_origin, const float3 light_direction,
+    const Intersection<float3> *hits, const float3 *vertices,
+    const float3 *normals, const uint3 *indices, const float3 *rays,
+    const float3 ray_origin, const float3 light_direction,
     const float scene_light_intensity, const HapkeConfig hapke_config,
     const int ray_count, float *out_light_intensity);
 
+__global__ void batch_render_kernel(
+    const Intersection<float3> *hits, const float3 *vertices,
+    const float3 *normals, const uint3 *indices, const float *albedos,
+    const float3 *rays, const float3 ray_origin, const float3 light_direction,
+    const float scene_light_intensity, const HapkeConfig hapke_config,
+    const int ray_count, float *out_light_intensity);
 class DvsRayCaster {
 public:
-  DvsRayCaster(const SceneBundle<float3> &scene, const Config &config,
+  DvsRayCaster(const SceneBundle<float3, uint3> &scene, const Config &config,
                const int root_index);
   ~DvsRayCaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);
       d_nodes_ = nullptr;
     }
-    if (d_tris_ != nullptr) {
-      cudaFree(d_tris_);
-      d_tris_ = nullptr;
+    if (d_vertices_ != nullptr) {
+      cudaFree(d_vertices_);
+      d_vertices_ = nullptr;
+    }
+    if (d_normals_ != nullptr) {
+      cudaFree(d_normals_);
+      d_normals_ = nullptr;
+    }
+    if (d_albedos_ != nullptr) {
+      cudaFree(d_albedos_);
+      d_albedos_ = nullptr;
+    }
+    if (d_indices_ != nullptr) {
+      cudaFree(d_indices_);
+      d_indices_ = nullptr;
     }
     if (d_rays_ != nullptr) {
       cudaFree(d_rays_);
@@ -190,6 +211,7 @@ private:
   int tri_count_ = 0;
   int root_index_ = 0;
   int ray_count_ = 0;
+  int ver_count_ = 0;
   // 相机参数
   float fx_, fy_, cx_, cy_;
   int width_, height_;
@@ -220,10 +242,13 @@ private:
 #endif
   // 渲染相关参数
   HapkeConfig hapke_config_;
-
+  bool use_albedo_ = false;
   // GPU数据
   BVHNode<float3> *d_nodes_ = nullptr;
-  Triangle<float3> *d_tris_ = nullptr;
+  // Triangle<float3> *d_tris_ = nullptr;
+  float3 *d_vertices_, *d_normals_;
+  float *d_albedos_;
+  uint3 *d_indices_;
   mutable float3 *d_rays_ = nullptr;
   mutable float3 ray_origin_;
   mutable Intersection<float3> *d_hits_ = nullptr;
@@ -235,16 +260,28 @@ private:
 
 class CamRayCaster {
 public:
-  CamRayCaster(const SceneBundle<float3> &scene, const Config &config,
+  CamRayCaster(const SceneBundle<float3, uint3> &scene, const Config &config,
                const int root_index);
   ~CamRayCaster() {
     if (d_nodes_ != nullptr) {
       cudaFree(d_nodes_);
       d_nodes_ = nullptr;
     }
-    if (d_tris_ != nullptr) {
-      cudaFree(d_tris_);
-      d_tris_ = nullptr;
+    if (d_vertices_ != nullptr) {
+      cudaFree(d_vertices_);
+      d_vertices_ = nullptr;
+    }
+    if (d_normals_ != nullptr) {
+      cudaFree(d_normals_);
+      d_normals_ = nullptr;
+    }
+    if (d_albedos_ != nullptr) {
+      cudaFree(d_albedos_);
+      d_albedos_ = nullptr;
+    }
+    if (d_indices_ != nullptr) {
+      cudaFree(d_indices_);
+      d_indices_ = nullptr;
     }
     if (d_rays_ != nullptr) {
       cudaFree(d_rays_);
@@ -285,7 +322,7 @@ public:
                    const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame,
                    std::vector<float> &depth_map);
-  
+
   void render_main(const float3 &camera_origin, const float *camera_world,
                    const float3 &light_dir, const float light_intensity,
                    std::vector<float> &light_frame);
@@ -295,6 +332,7 @@ protected:
   int tri_count_ = 0;
   int root_index_ = 0;
   int ray_count_ = 0;
+  int ver_count_ = 0;
   // 相机参数
   float fx_, fy_, cx_, cy_;
   int width_, height_;
@@ -302,9 +340,13 @@ protected:
   // 渲染相关参数
   HapkeConfig hapke_config_;
   SceneConfig scene_config_;
+  bool use_albedo_ = false;
   // GPU数据
   BVHNode<float3> *d_nodes_ = nullptr;
-  Triangle<float3> *d_tris_ = nullptr;
+  // Triangle<float3> *d_tris_ = nullptr;
+  float3 *d_vertices_, *d_normals_;
+  float *d_albedos_;
+  uint3 *d_indices_;
   mutable float3 *d_rays_ = nullptr;
   mutable float3 ray_origin_;
   mutable Intersection<float3> *d_hits_ = nullptr;

@@ -31,7 +31,7 @@ __global__ void threshold_map_init_kernel(const int width, const int height,
   threshold_map[idx] = threshold * (1.0f + noise); // 添加噪声后的阈值
 }
 
-DvsRayCaster::DvsRayCaster(const SceneBundle<float3> &scene,
+DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
                            const Config &config, const int root_index)
     : root_index_(root_index), hapke_config_(config.hapke),
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),
@@ -40,9 +40,16 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3> &scene,
       scene_config_(config.scene) {
   const auto &nodes = scene.bvh_nodes;
   const auto &triangles = scene.bvh_triangles;
+  use_albedo_ = scene.use_albedo;
+  if (use_albedo_) {
+    std::cout << "Using albedo in rendering.\n";
+  } else {
+    std::cout << "Not using albedo in rendering.\n";
+  }
 
   node_count_ = static_cast<int>(nodes.size());
   tri_count_ = static_cast<int>(triangles.size());
+  ver_count_ = static_cast<int>(scene.vertices.size());
   ray_count_ = width_ * height_;
   if (node_count_ <= 0 || tri_count_ <= 0) {
     throw std::invalid_argument(
@@ -60,20 +67,44 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3> &scene,
   CUDA_CHECK(cudaMalloc(&d_nodes_, sizeof(BVHNode<float3>) *
                                        static_cast<size_t>(node_count_)),
              "Failed to allocate device memory for BVH nodes");
-  CUDA_CHECK(cudaMalloc(&d_tris_, sizeof(Triangle<float3>) *
-                                      static_cast<size_t>(tri_count_)),
-             "Failed to allocate device memory for triangles");
+  CUDA_CHECK(cudaMalloc(&d_vertices_,
+                        sizeof(float3) * static_cast<size_t>(ver_count_)),
+             "Failed to allocate device memory for vertices");
+  CUDA_CHECK(
+      cudaMalloc(&d_normals_, sizeof(float3) * static_cast<size_t>(ver_count_)),
+      "Failed to allocate device memory for normals");
+  CUDA_CHECK(
+      cudaMalloc(&d_indices_, sizeof(uint3) * static_cast<size_t>(tri_count_)),
+      "Failed to allocate device memory for indices");
+  if (use_albedo_) {
+    CUDA_CHECK(cudaMalloc(&d_albedos_,
+                          sizeof(float) * static_cast<size_t>(ver_count_)),
+               "Failed to allocate device memory for albedos");
+  }
   CUDA_CHECK(
       cudaMemcpy(d_nodes_, nodes.data(),
                  sizeof(BVHNode<float3>) * static_cast<size_t>(node_count_),
                  cudaMemcpyHostToDevice),
       "Failed to copy BVH data from host to device");
-  CUDA_CHECK(
-      cudaMemcpy(d_tris_, triangles.data(),
-                 sizeof(Triangle<float3>) * static_cast<size_t>(tri_count_),
-                 cudaMemcpyHostToDevice),
-      "Failed to copy BVH data from host to device");
+  CUDA_CHECK(cudaMemcpy(d_vertices_, scene.vertices.data(),
+                        sizeof(float3) * static_cast<size_t>(ver_count_),
+                        cudaMemcpyHostToDevice),
+             "Failed to copy vertex data from host to device");
+  CUDA_CHECK(cudaMemcpy(d_normals_, scene.normals.data(),
+                        sizeof(float3) * static_cast<size_t>(ver_count_),
+                        cudaMemcpyHostToDevice),
+             "Failed to copy normal data from host to device");
 
+  CUDA_CHECK(cudaMemcpy(d_indices_, scene.bvh_triangles.data(),
+                        sizeof(uint3) * static_cast<size_t>(tri_count_),
+                        cudaMemcpyHostToDevice),
+             "Failed to copy index data from host to device");
+  if (use_albedo_) {
+    CUDA_CHECK(cudaMemcpy(d_albedos_, scene.albedos.data(),
+                          sizeof(float) * static_cast<size_t>(ver_count_),
+                          cudaMemcpyHostToDevice),
+               "Failed to copy albedo data from host to device");
+  }
   // 预分配足够的内存用于存储每一帧的光线、交点结果和光强度
   CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_),
              "Failed to allocate device memory for rays");
@@ -186,8 +217,8 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   const int threads = 128; // 或 256
   const int blocks = (ray_count_ + threads - 1) / threads;
   batch_intersect_kernel<<<blocks, threads>>>(
-      d_nodes_, root_index_, d_tris_, d_rays_, camera_origin, ray_count_,
-      d_hits_, d_depth_map_);
+      d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_, d_rays_,
+      camera_origin, ray_count_, d_hits_, d_depth_map_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -195,10 +226,16 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #endif
   cudaFree(d_camera_world);
   // 计算光照，使用Hapke模型
-
-  batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, camera_origin, light_dir, light_intensity,
-      hapke_config_, ray_count_, d_lights_);
+  if (use_albedo_) {
+    batch_render_kernel<<<blocks, threads>>>(
+        d_hits_, d_vertices_, d_normals_, d_indices_, d_albedos_, d_rays_,
+        camera_origin, light_dir, light_intensity, hapke_config_, ray_count_,
+        d_lights_);
+  } else {
+    batch_render_kernel<<<blocks, threads>>>(
+        d_hits_, d_vertices_, d_normals_, d_indices_, d_rays_, camera_origin,
+        light_dir, light_intensity, hapke_config_, ray_count_, d_lights_);
+  }
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -269,8 +306,8 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
   batch_intersect_kernel<<<blocks, threads>>>(
-      d_nodes_, root_index_, d_tris_, d_rays_, camera_origin, ray_count_,
-      d_hits_, d_depth_map_);
+      d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_, d_rays_,
+      camera_origin, ray_count_, d_hits_, d_depth_map_);
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[1] += end_time - start_time;
@@ -281,13 +318,20 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
 #endif
 
-  // 计算光照，使用Hapke模型
 #ifdef DEBUG
   start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 #endif
-  batch_render_kernel<<<blocks, threads>>>(
-      d_hits_, d_tris_, d_rays_, camera_origin, light_dir, light_intensity,
-      hapke_config_, ray_count_, d_lights_);
+  // 计算光照，使用Hapke模型
+  if (use_albedo_) {
+    batch_render_kernel<<<blocks, threads>>>(
+        d_hits_, d_vertices_, d_normals_, d_indices_, d_albedos_, d_rays_,
+        camera_origin, light_dir, light_intensity, hapke_config_, ray_count_,
+        d_lights_);
+  } else {
+    batch_render_kernel<<<blocks, threads>>>(
+        d_hits_, d_vertices_, d_normals_, d_indices_, d_rays_, camera_origin,
+        light_dir, light_intensity, hapke_config_, ray_count_, d_lights_);
+  }
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
   test_time[2] += end_time - start_time;

@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     dvs::Options opts(argc, argv);
-    dvs::SceneBundle<float3> scene;
+    dvs::SceneBundle<float3, uint3> scene;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
     if (!error_message.empty()) {
@@ -83,8 +83,8 @@ int main(int argc, char **argv) {
       return 1;
     }
     dvs::BVHBuildParams params; // 可使用默认参数
-    int root_index =
-        dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
+    int root_index = dvs::BVHBuilder::build(
+        params, scene.bvh_nodes, scene.bvh_triangles, scene.vertices);
 
     dvs::CamRayCaster raycaster(scene, config, root_index);
     std::filesystem::path image_output_dir(opts.output_dir);

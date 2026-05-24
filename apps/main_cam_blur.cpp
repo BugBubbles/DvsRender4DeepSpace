@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     }
 
     const dvs::Options opts(argc, argv);
-    dvs::SceneBundle<float3> scene;
+    dvs::SceneBundle<float3, uint3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
@@ -34,13 +34,20 @@ int main(int argc, char **argv) {
     }
 
     if (std::filesystem::exists(opts.dem_path) &&
-        std::filesystem::exists(opts.albedo_path) &&
         std::filesystem::exists(opts.traj_path)) {
-      if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path,
-                                  opts.traj_path, scene, frames,
-                                  &error_message)) {
-        throw std::runtime_error("failed to load scene: " + error_message);
-        return 1;
+      if (std::filesystem::exists(opts.albedo_path)) {
+        if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path,
+                                    opts.traj_path, scene, frames,
+                                    &error_message)) {
+          throw std::runtime_error("failed to load scene: " + error_message);
+          return 1;
+        }
+      } else {
+        if (!dvs::load_scene_bundle(opts.dem_path, opts.traj_path, scene,
+                                    frames, &error_message)) {
+          throw std::runtime_error("failed to load scene: " + error_message);
+          return 1;
+        }
       }
     } else {
       if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
@@ -51,13 +58,11 @@ int main(int argc, char **argv) {
       }
     }
 
-    std::cout << "Loaded scene bundle from " << opts.scene_dir << "\n";
-
     // 使用样条曲线获取连续位姿轨迹
     dvs::CameraTrajectory traj(frames, config.scene.fps);
     dvs::BVHBuildParams params; // 可使用默认参数
-    int root_index =
-        dvs::BVHBuilder::build(params, scene.bvh_nodes, scene.bvh_triangles);
+    int root_index = dvs::BVHBuilder::build(
+        params, scene.bvh_nodes, scene.bvh_triangles, scene.vertices);
 
     dvs::CamBlurRayCaster raycaster(scene, config, root_index);
     std::filesystem::path image_output_dir(opts.output_dir + "/blur_images");

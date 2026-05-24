@@ -131,6 +131,16 @@ __host__ bool load_from_raster(const std::string &dem_path,
                                std::vector<dvs::Triangle<float3>> &h_tris,
                                std::vector<float> &h_albs);
 
+__host__ bool
+load_from_raster(const std::string &dem_path, const std::string &albedo_path,
+                 std::vector<float3> &vertices, std::vector<float3> &normals,
+                 std::vector<uint3> &indices, std::vector<float> &albedos);
+
+__host__ bool load_from_raster(const std::string &dem_path,
+                               std::vector<float3> &vertices,
+                               std::vector<float3> &normals,
+                               std::vector<uint3> &indices);
+
 void transform_normalization(const float lat, const float lon,
                              const float radii, float3 &translation,
                              float4 &quaternion);

@@ -12,19 +12,25 @@
 namespace dvs {
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &out_frames,
                        std::string *error_message);
 
 bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &albedo_path,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
+                       std::string *error_message);
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       const std::filesystem::path &traj_path,
+                       SceneBundle<float3, uint3> &out_bundle,
+                       std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message);
 
 bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &albedo_path,
                        const std::filesystem::path &traj_path,
-                       SceneBundle<float3> &out_bundle,
+                       SceneBundle<float3, uint3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &frames,
                        std::string *error_message);
 

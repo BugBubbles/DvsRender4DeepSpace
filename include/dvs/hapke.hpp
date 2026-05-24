@@ -1,8 +1,8 @@
 #pragma once
 
-#include "helper_math.hpp"
 #include "dvs/math_types.hpp"
 #include "dvs/scene_types.hpp"
+#include "helper_math.hpp"
 
 namespace dvs {
 struct RoughnessTerms {
@@ -122,10 +122,9 @@ inline __host__ __device__ RoughnessTerms rough_S(float cosi, float cose,
 
   return out;
 }
-inline __host__ __device__ float hapke_brdf(const float3 &normal,
-                                            const float3 &light_dir,
-                                            const float3 &view_dir,
-                                            const HapkeConfig &p) {
+inline __host__ __device__ float
+hapke_brdf(const float3 &normal, const float3 &light_dir,
+           const float3 &view_dir, const float albedo, const HapkeConfig &p) {
   const float3 n = normalize(normal);
   const float3 l = normalize(light_dir);
   const float3 v = normalize(view_dir);
@@ -148,10 +147,11 @@ inline __host__ __device__ float hapke_brdf(const float3 &normal,
   const float BC = B_C(tan_g_div_2, p.hC);
   const float K = porosity_K(p.phi);
   const RoughnessTerms rst = rough_S(cosi, cose, sini, sine, psi, p.thetap);
-  const float M = Hfunc(rst.mu0 / K, p.w) * Hfunc(rst.mue / K, p.w) - 1.0f;
+  const float M =
+      Hfunc(rst.mu0 / K, albedo) * Hfunc(rst.mue / K, albedo) - 1.0f;
   const float LS = rst.mu0 / (rst.mu0 + rst.mue + 1e-6f);
 
-  const float brdf = (p.w / (4.0f * kPi)) * (LS / cosi) * K *
+  const float brdf = (albedo / (4.0f * kPi)) * (LS / cosi) * K *
                      (p_g * (1.0f + BS * p.B_S0) + M) * (1.0f + BC * p.B_C0) *
                      rst.S;
   return brdf * cosi;

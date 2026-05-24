@@ -10,23 +10,18 @@
 namespace dvs {
 
 template <typename float3, typename uint3> struct MeshData {
-  std::vector<float3> vertices;
-  std::vector<float3> normals;
+  std::vector<float3> vertices, normals;
   std::vector<uint3> indices;
+  std::vector<float> albedos;
 };
 
 template <typename float3> struct Triangle {
-  float3 v0;
-  float3 v1;
-  float3 v2;
-  float3 n0;
-  float3 n1;
-  float3 n2;
+  float3 v0, v1, v2;
+  float3 n0, n1, n2;
 };
 
 template <typename float3> struct AABB {
-  float3 min;
-  float3 max;
+  float3 min, max;
 };
 
 template <typename float3> struct BVHNode {
@@ -96,9 +91,13 @@ public:
   Config(const std::string &config_file, std::string &err);
 };
 
-template <typename float3> struct SceneBundle {
+template <typename float3, typename uint3> struct SceneBundle {
   std::vector<BVHNode<float3>> bvh_nodes;
-  std::vector<Triangle<float3>> bvh_triangles;
+  // std::vector<Triangle<float3>> bvh_triangles;
+  std::vector<float3> vertices, normals;
+  std::vector<uint3> bvh_triangles;
+  std::vector<float> albedos;
+  bool use_albedo = false;
 };
 
 } // namespace dvs

@@ -16,6 +16,64 @@ static AABB<float3> compute_tri_aabb(const Triangle<float3> &tri) {
   box.max = fmaxf(fmaxf(tri.v0, tri.v1), tri.v2);
   return box;
 }
+static AABB<float3> compute_tri_aabb(const float3 &v0, const float3 &v1,
+                                     const float3 &v2) {
+  AABB<float3> box;
+  box.min = fminf(fminf(v0, v1), v2);
+  box.max = fmaxf(fmaxf(v0, v1), v2);
+  return box;
+}
+
+int BVHBuilder::build(const BVHBuildParams &params,
+                      std::vector<BVHNode<float3>> &out_nodes,
+                      std::vector<uint3> &triangles,
+                      std::vector<float3> &vertices) {
+  if (triangles.empty()) {
+    out_nodes.clear();
+    return -1;
+  }
+
+  float start_time = (float)clock() / CLOCKS_PER_SEC;
+  float end_time;
+
+  BuildContext ctx{params, {}, {}, 0};
+
+  ctx.refs.reserve(triangles.size());
+  for (int i = 0; i < static_cast<int>(triangles.size()); ++i) {
+    auto &tri = triangles[i];
+    AABB<float3> box =
+        compute_tri_aabb(vertices[tri.x], vertices[tri.y], vertices[tri.z]);
+    float3 center = aabb_center(box);
+    ctx.refs.push_back({box, center, i});
+  }
+  end_time = (float)clock() / CLOCKS_PER_SEC;
+  printf("BVH build: computed triangle bounds in %.2f seconds\n",
+         end_time - start_time);
+  start_time = end_time;
+
+  ctx.nodes.reserve(2 * triangles.size());
+
+  int root_index = build_node(ctx, 0, static_cast<int>(ctx.refs.size()), 0);
+  end_time = (float)clock() / CLOCKS_PER_SEC;
+  printf("BVH build: constructed BVH nodes in %.2f seconds\n",
+         end_time - start_time);
+  start_time = end_time;
+
+  std::vector<uint3> out_triangles;
+  out_triangles.resize(triangles.size());
+  for (int i = 0; i < static_cast<int>(ctx.refs.size()); ++i) {
+    out_triangles[i] = triangles[ctx.refs[i].tri_index];
+  }
+
+  triangles = std::move(out_triangles);
+  out_nodes = std::move(ctx.nodes);
+
+  end_time = (float)clock() / CLOCKS_PER_SEC;
+  printf("BVH build: reordered triangles in %.2f seconds\n",
+         end_time - start_time);
+
+  return root_index;
+}
 
 int BVHBuilder::build(const BVHBuildParams &params,
                       std::vector<BVHNode<float3>> &out_nodes,
