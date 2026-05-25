@@ -15,6 +15,50 @@
 #include <string>
 
 namespace tools {
+class NoteOptions : public dvs::Options {
+public:
+  NoteOptions(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+      const std::string arg = argv[i];
+      auto require_value = [&](const char *key) -> std::string {
+        if (i + 1 >= argc) {
+          throw std::runtime_error(std::string("missing value for ") + key);
+        }
+        return std::string(argv[++i]);
+      };
+
+      if (arg == "--scene_dir") {
+        scene_dir = require_value("--scene_dir");
+      } else if (arg == "--dem") {
+        dem_path = require_value("--dem");
+      } else if (arg == "--albedo") {
+        albedo_path = require_value("--albedo");
+      } else if (arg == "--traj") {
+        traj_path = require_value("--traj");
+      } else if (arg == "--output") {
+        output_dir = require_value("--output");
+      } else if (arg == "--config") {
+        config_path = require_value("--config");
+      } else if (arg == "--help" || arg == "-h") {
+        print_usage(argv[0]);
+        std::exit(0);
+      } else {
+        throw std::runtime_error("unknown argument: " + arg);
+      }
+    }
+
+    if (scene_dir.empty()) {
+      if (dem_path.empty()) {
+        throw std::runtime_error("either --scene_dir or all --dem is required");
+      }
+    }
+    std::ifstream config_in(config_path);
+    if (!config_in.good()) {
+      throw std::runtime_error("failed to open config file: " + config_path);
+    }
+  }
+};
+
 std::string read_command_line(const char *prompt) {
   char *raw = readline(prompt);
   if (raw == nullptr) {
@@ -66,10 +110,10 @@ void render_frame(const dvs::Vec3 &position, const dvs::Vec3 &rotation,
 int main(int argc, char **argv) {
   try {
     if (argc <= 1) {
-      dvs::Options::print_usage(argv[0]);
+      tools::NoteOptions::print_usage(argv[0]);
       return 1;
     }
-    dvs::Options opts(argc, argv);
+    tools::NoteOptions opts(argc, argv);
     dvs::SceneBundle<float3, uint3> scene;
     std::string error_message;
     dvs::Config config(opts.config_path, error_message);
@@ -77,10 +121,17 @@ int main(int argc, char **argv) {
       throw std::runtime_error("failed to load config: " + error_message);
       return 1;
     }
-    if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path, scene,
-                                &error_message)) {
-      throw std::runtime_error("failed to load scene: " + error_message);
-      return 1;
+    if (std::filesystem::exists(opts.albedo_path)) {
+      if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path, scene,
+                                  &error_message)) {
+        throw std::runtime_error("failed to load scene: " + error_message);
+        return 1;
+      }
+    } else {
+      if (!dvs::load_scene_bundle(opts.dem_path, scene, &error_message)) {
+        throw std::runtime_error("failed to load scene: " + error_message);
+        return 1;
+      }
     }
     dvs::BVHBuildParams params; // 可使用默认参数
     int root_index = dvs::BVHBuilder::build(

@@ -1056,9 +1056,12 @@ __host__ bool load_from_raster(const std::string &dem_path,
   std::size_t memory_size = (dem.width * dem.height + dem.width * dem.height +
                              dem.height + dem.width) *
                             sizeof(float);
+  memory_size += (dem.width - 1) * (dem.height - 1) * 2 * sizeof(int3);
+  memory_size +=
+      (dem.width * dem.height) * sizeof(float3) * 2; // vertices + normals
 
-  std::cout << "Total GPU memory required: " << memory_size / (1024.0 * 1024.0)
-            << " MB" << std::endl;
+  std::cout << "Total GPU memory required: "
+            << memory_size / (1024.0 * 1024.0 * 1024.0) << " GB" << std::endl;
   std::size_t dem_size = dem.width * dem.height;
   cudaMalloc(&d_dem, dem_size * sizeof(float));
   cudaMalloc(&d_dem_ys, dem.height * sizeof(float));

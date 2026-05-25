@@ -22,6 +22,10 @@ bool load_scene_bundle(const std::filesystem::path &dem_path,
                        std::string *error_message);
 
 bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       SceneBundle<float3, uint3> &out_bundle,
+                       std::string *error_message);
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &traj_path,
                        SceneBundle<float3, uint3> &out_bundle,
                        std::vector<FrameData<Vec3, Mat3>> &frames,

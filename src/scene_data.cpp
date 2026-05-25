@@ -335,6 +335,25 @@ bool load_scene_bundle(const std::filesystem::path &dem_path,
 }
 
 bool load_scene_bundle(const std::filesystem::path &dem_path,
+                       SceneBundle<float3, uint3> &out_bundle,
+                       std::string *error_message) {
+  if (!tools::load_from_raster(dem_path.string(), out_bundle.vertices,
+                               out_bundle.normals, out_bundle.bvh_triangles)) {
+    return false;
+  }
+  out_bundle.bvh_nodes.clear();
+
+  if (out_bundle.bvh_triangles.empty()) {
+    if (error_message != nullptr) {
+      *error_message = "mesh is empty after triangulation";
+    }
+    return false;
+  }
+
+  return true;
+}
+
+bool load_scene_bundle(const std::filesystem::path &dem_path,
                        const std::filesystem::path &albedo_path,
                        const std::filesystem::path &traj_path,
                        SceneBundle<float3, uint3> &out_bundle,
