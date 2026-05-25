@@ -21,6 +21,7 @@ struct Imagery {
  * width)，每个元素对应一个像素值
  * @return 加载成功返回true，失败返回false
  */
+
 inline bool loadImageryData(const std::string &path, Imagery &imagery) {
   GDALAllRegister();
   GDALDataset *dataset =
@@ -72,6 +73,65 @@ inline bool loadImageryData(const std::string &path, Imagery &imagery) {
     imagery.y_coords[i] = static_cast<float>(y);
   }
 
+  GDALClose(dataset);
+  return true;
+}
+
+inline bool loadImageryData(const std::string &path, Imagery &imagery,
+                            double *transform,
+                            OGRCoordinateTransformation *to_geog) {
+  GDALAllRegister();
+  GDALDataset *dataset =
+      static_cast<GDALDataset *>(GDALOpen(path.c_str(), GA_ReadOnly));
+  if (dataset == nullptr) {
+    std::cerr << "Failed to open dataset: " << path << std::endl;
+    return false;
+  }
+
+  GDALRasterBand *band = dataset->GetRasterBand(1);
+  if (band == nullptr) {
+    std::cerr << "Failed to get raster band from dataset: " << path
+              << std::endl;
+    GDALClose(dataset);
+    return false;
+  }
+
+  int width = band->GetXSize();
+  int height = band->GetYSize();
+  imagery.width = width;
+  imagery.height = height;
+  imagery.data.resize(width * height);
+  if (band->RasterIO(GF_Read, 0, 0, width, height, imagery.data.data(), width,
+                     height, GDT_Float32, 0, 0) != CE_None) {
+    std::cerr << "Failed to read raster data from dataset: " << path
+              << std::endl;
+    GDALClose(dataset);
+    return false;
+  }
+
+  double gt[6];
+  if (dataset->GetGeoTransform(gt) != CE_None) {
+    std::cerr << "Failed to get geotransform from dataset: " << path
+              << std::endl;
+    GDALClose(dataset);
+    return false;
+  }
+
+  std::copy(gt, gt + 6, transform);
+  // 加载平面坐标系
+  imagery.x_coords.resize(static_cast<std::size_t>(width));
+  imagery.y_coords.resize(static_cast<std::size_t>(height));
+#pragma omp parallel for
+  for (int j = 0; j < width; ++j) {
+    double x = gt[0] + (j + 0.5) * gt[1] + 0.5 * gt[2];
+    imagery.x_coords[j] = static_cast<float>(x);
+  }
+#pragma omp parallel for
+  for (int i = 0; i < height; ++i) {
+    double y = gt[3] + 0.5 * gt[4] + (i + 0.5) * gt[5];
+    imagery.y_coords[i] = static_cast<float>(y);
+  }
+
   // 加载投影坐标系
   const OGRSpatialReference *src_srs = dataset->GetSpatialRef();
   OGRSpatialReference src_copy;
@@ -100,8 +160,7 @@ inline bool loadImageryData(const std::string &path, Imagery &imagery) {
   }
   geog_srs->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
-  OGRCoordinateTransformation *to_geog =
-      OGRCreateCoordinateTransformation(src_srs, geog_srs);
+  to_geog = OGRCreateCoordinateTransformation(src_srs, geog_srs);
   if (to_geog == nullptr) {
     std::cerr << "Failed to create projected->geographic transformation: "
               << path << std::endl;
@@ -134,7 +193,7 @@ inline bool loadImageryData(const std::string &path, Imagery &imagery) {
   double b = geog_srs->GetSemiMinor();
   imagery.radii = static_cast<float>((a + b) * 0.5);
 
-  OCTDestroyCoordinateTransformation(to_geog);
+  // OCTDestroyCoordinateTransformation(to_geog);
   OSRDestroySpatialReference(geog_srs);
   GDALClose(dataset);
   return true;

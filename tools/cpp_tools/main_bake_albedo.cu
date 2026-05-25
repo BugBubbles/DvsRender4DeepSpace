@@ -1,6 +1,7 @@
 #include "bvh/build.h"
 #include "dvs/math_types.hpp"
 #include "tools/build_from_raster.hpp"
+#include "tools/cli.hpp"
 #include "tools/loader.hpp"
 
 #include <cstddef>
@@ -11,86 +12,55 @@
 #include <vector>
 
 namespace tools {
-struct Options {
-  std::string dem_path;
-  std::string albedo_path;
-  std::string output_dir = "../output";
-  std::string config_path = "../../config/default.yaml";
-};
+class BakeOptions : public tools::Options {
+public:
+  BakeOptions(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+      const std::string arg = argv[i];
+      auto require_value = [&](const char *key) -> std::string {
+        if (i + 1 >= argc) {
+          throw std::runtime_error(std::string("missing value for ") + key);
+        }
+        return std::string(argv[++i]);
+      };
 
-void print_usage(const char *prog) {
-  std::cout
-      << "Usage: " << prog
-      << " --dem_path <path> --albedo_path <path> [options]\n"
-      << "Required arguments:\n"
-      << "  --dem_path <path>          path to input DEM file (e.g. "
-         ".tiff/.img)\n"
-      << "  --albedo_path <path>       path to input albedo file (e.g. "
-         ".tiff/.img)\n"
-      << "Options:\n"
-      << "  --output <path>            output images file (default: ./output)\n"
-      << "  --config <path>            path to YAML config file (default: "
-         "../../config/default.yaml)\n"
-      << std::endl;
-}
-
-float parse_float_arg(const char *key, const std::string &value) {
-  try {
-    return std::stof(value);
-  } catch (const std::exception &) {
-    throw std::runtime_error(std::string("invalid float for ") + key + ": " +
-                             value);
-  }
-}
-
-Options parse_args(int argc, char **argv) {
-  Options opts;
-  for (int i = 1; i < argc; ++i) {
-    const std::string arg = argv[i];
-    auto require_value = [&](const char *key) -> std::string {
-      if (i + 1 >= argc) {
-        throw std::runtime_error(std::string("missing value for ") + key);
+      if (arg == "--scene_dir") {
+        scene_dir = require_value("--scene_dir");
+      } else if (arg == "--dem") {
+        dem_path = require_value("--dem");
+      } else if (arg == "--albedo") {
+        albedo_path = require_value("--albedo");
+      } else if (arg == "--traj") {
+        traj_path = require_value("--traj");
+      } else if (arg == "--output") {
+        output_dir = require_value("--output");
+      } else if (arg == "--config") {
+        config_path = require_value("--config");
+      } else if (arg == "--help" || arg == "-h") {
+        print_usage(argv[0]);
+        std::exit(0);
+      } else {
+        throw std::runtime_error("unknown argument: " + arg);
       }
-      return std::string(argv[++i]);
-    };
+    }
 
-    if (arg == "--dem_path") {
-      opts.dem_path = require_value("--dem_path");
-    } else if (arg == "--albedo_path") {
-      opts.albedo_path = require_value("--albedo_path");
-    } else if (arg == "--output") {
-      opts.output_dir = require_value("--output");
-    } else if (arg == "--config") {
-      opts.config_path = require_value("--config");
-    } else if (arg == "--help" || arg == "-h") {
-      print_usage(argv[0]);
-      std::exit(0);
-    } else {
-      throw std::runtime_error("unknown argument: " + arg);
+    if (dem_path.empty() || albedo_path.empty()) {
+      throw std::runtime_error("both --dem and --albedo are required");
+    }
+    std::ifstream config_in(config_path);
+    if (!config_in.good()) {
+      throw std::runtime_error("failed to open config file: " + config_path);
     }
   }
-
-  if (opts.dem_path.empty()) {
-    throw std::runtime_error("--input_cub is required");
-  }
-  if (opts.albedo_path.empty()) {
-    throw std::runtime_error("--albedo_path is required");
-  }
-  std::ifstream config_in(opts.config_path);
-  if (!config_in.good()) {
-    throw std::runtime_error("failed to open config file: " + opts.config_path);
-  }
-  return opts;
-}
-
+};
 } // namespace tools
 int main(int argc, char *argv[]) {
   try {
     if (argc <= 1) {
-      tools::print_usage(argv[0]);
+      tools::BakeOptions::print_usage(argv[0]);
       return 1;
     }
-    const tools::Options opts = tools::parse_args(argc, argv);
+    const tools::BakeOptions opts(argc, argv);
     const std::string dem_path = opts.dem_path;
     const std::string albedo_path = opts.albedo_path;
     // 输出文件名改为输入文件名（去除后缀）+ "-albedo.tiff"
