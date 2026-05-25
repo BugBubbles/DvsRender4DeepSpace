@@ -228,13 +228,14 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   // 计算光照，使用Hapke模型
   if (use_albedo_) {
     batch_render_kernel<<<blocks, threads>>>(
-        d_hits_, d_vertices_, d_normals_, d_indices_, d_albedos_, d_rays_,
-        camera_origin, light_dir, light_intensity, hapke_config_, ray_count_,
-        d_lights_);
+        d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
+        d_albedos_, d_rays_, camera_origin, light_dir, light_intensity,
+        hapke_config_, ray_count_, d_lights_);
   } else {
     batch_render_kernel<<<blocks, threads>>>(
-        d_hits_, d_vertices_, d_normals_, d_indices_, d_rays_, camera_origin,
-        light_dir, light_intensity, hapke_config_, ray_count_, d_lights_);
+        d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
+        d_rays_, camera_origin, light_dir, light_intensity, hapke_config_,
+        ray_count_, d_lights_);
   }
 #ifdef DEBUG
   cudaDeviceSynchronize();
@@ -324,13 +325,14 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   // 计算光照，使用Hapke模型
   if (use_albedo_) {
     batch_render_kernel<<<blocks, threads>>>(
-        d_hits_, d_vertices_, d_normals_, d_indices_, d_albedos_, d_rays_,
-        camera_origin, light_dir, light_intensity, hapke_config_, ray_count_,
-        d_lights_);
+        d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
+        d_albedos_, d_rays_, camera_origin, light_dir, light_intensity,
+        hapke_config_, ray_count_, d_lights_);
   } else {
     batch_render_kernel<<<blocks, threads>>>(
-        d_hits_, d_vertices_, d_normals_, d_indices_, d_rays_, camera_origin,
-        light_dir, light_intensity, hapke_config_, ray_count_, d_lights_);
+        d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
+        d_rays_, camera_origin, light_dir, light_intensity, hapke_config_,
+        ray_count_, d_lights_);
   }
 #ifdef DEBUG
   end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;

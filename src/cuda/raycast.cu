@@ -382,6 +382,7 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
     out_hits[i] = hit;
   }
 }
+
 __global__ void view_direction_batch_kernel(const int width, const int height,
                                             const float fx, const float fy,
                                             const float cx, const float cy,
@@ -470,9 +471,131 @@ __global__ void intersect_brute_batch_kernel(
   out_hits[tid] = out;
 }
 
+__device__ bool trace_shadow_ray_any_hit(
+    const BVHNode<float3> *nodes, const int root_index, const float3 *vertices,
+    const uint3 *indices, const float3 shadow_origin, const float3 shadow_dir,
+    const int self_triangle_index, const float t_min, const float t_max) {
+  float3 idir = bvh_inverse_direction(shadow_dir);
+  int stack[kMaxStackSize];
+  int sp = 0;
+  stack[sp++] = root_index;
+  while (sp > 0) {
+    int ni = stack[--sp];
+    const BVHNode<float3> &node = nodes[ni];
+    if (node.count > 0) {
+      for (int i = 0; i < node.count; ++i) {
+        int tri_id = node.start + i;
+        // 可选：跳过当前相机命中的同一个三角形，减少自相交风险
+        if (tri_id == self_triangle_index) {
+          continue;
+        }
+        float t, u, v;
+        auto v0 = vertices[indices[tri_id].x];
+        auto v1 = vertices[indices[tri_id].y];
+        auto v2 = vertices[indices[tri_id].z];
+        if (intersect_triangle(shadow_dir, shadow_origin, v0, v1, v2, &t, &u,
+                               &v)) {
+          if (t > t_min && t < t_max) {
+            return true;
+          }
+        }
+      }
+      continue;
+    }
+    float dist[2];
+    int mask = intersect_two_children(shadow_origin, idir, t_min, t_max,
+                                      nodes[node.left].box,
+                                      nodes[node.right].box, dist);
+    if (mask == 0) {
+      continue;
+    }
+    if (mask == 3) {
+      if (dist[0] < dist[1]) {
+        stack[sp++] = node.right;
+        stack[sp++] = node.left;
+      } else {
+        stack[sp++] = node.left;
+        stack[sp++] = node.right;
+      }
+    } else if (mask == 1) {
+      stack[sp++] = node.left;
+    } else {
+      stack[sp++] = node.right;
+    }
+    if (sp >= kMaxStackSize) {
+      // 保守处理：栈溢出时认为有遮挡，避免错误漏光
+      return true;
+    }
+  }
+  return false;
+}
+
 __global__ void batch_render_kernel(
-    const Intersection<float3> *hits, const float3 *vertices,
-    const float3 *normals, const uint3 *indices, const float3 *rays,
+    const Intersection<float3> *hits, const BVHNode<float3> *nodes,
+    const int root_index, const float3 *vertices, const float3 *normals,
+    const uint3 *indices, const float3 *rays, const float3 ray_origin,
+    const float3 light_direction, const float scene_light_intensity,
+    const HapkeConfig hapke_config, const int ray_count,
+    float *out_light_intensity) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= ray_count)
+    return;
+  const Intersection<float3> &hit = hits[idx];
+  if (!hit.hit) {
+    out_light_intensity[idx] = 0.0f;
+    return;
+  } else {
+    // 这里可以根据 hit.triangle_index 和 hit.u, hit.v 来计算交点的法线和位置
+    auto tri = indices[hit.triangle_index];
+    auto v0 = vertices[tri.x];
+    auto v1 = vertices[tri.y];
+    auto v2 = vertices[tri.z];
+    auto n0 = normals[tri.x];
+    auto n1 = normals[tri.y];
+    auto n2 = normals[tri.z];
+    const float w = 1.0f - hit.u - hit.v;
+    const float3 smooth_normal = normalize(n0 * w + n1 * hit.u + n2 * hit.v);
+
+    const float3 geometric_normal = normalize(cross(v1 - v0, v2 - v0));
+    const float3 light_dir = normalize(light_direction);
+    const float3 view_dir = normalize(-rays[idx]);
+    // 如果法线背向光源，直接为 0
+    // 这一步可以避免不必要的 shadow ray。
+    if (dot(smooth_normal, light_dir) <= 0.0f) {
+      out_light_intensity[idx] = 0.0f;
+      return;
+    }
+    // 相机射线交点
+    const float3 hit_point = ray_origin + rays[idx] * hit.t;
+    /**
+     * 阴影偏移，避免 shadow ray 与当前三角形发生自相交。
+     *
+     * 这里建议沿 light_dir 偏移，而不是沿 smooth_normal 偏移。
+     * 对地形来说，沿光线方向偏移更稳定。
+     */
+    const float3 shadow_origin = hit_point + light_dir * SHADOW_BIAS;
+    /**
+     * 对方向光来说，光源在无限远处。
+     * 因此只要沿 light_dir 任意距离内命中地形，就认为被遮挡。
+     */
+    const float shadow_t_max = 1e30f;
+    const bool in_shadow = trace_shadow_ray_any_hit(
+        nodes, root_index, vertices, indices, shadow_origin, light_dir,
+        hit.triangle_index, SHADOW_BIAS, shadow_t_max);
+    if (in_shadow) {
+      out_light_intensity[idx] = 0.0f;
+      return;
+    }
+    out_light_intensity[idx] = hapke_brdf(smooth_normal, light_dir, view_dir,
+                                          hapke_config.w, hapke_config) *
+                               scene_light_intensity;
+  }
+}
+
+__global__ void batch_render_kernel(
+    const Intersection<float3> *hits, const BVHNode<float3> *nodes,
+    const int root_index, const float3 *vertices, const float3 *normals,
+    const uint3 *indices, const float *albedos, const float3 *rays,
     const float3 ray_origin, const float3 light_direction,
     const float scene_light_intensity, const HapkeConfig hapke_config,
     const int ray_count, float *out_light_intensity) {
@@ -486,43 +609,47 @@ __global__ void batch_render_kernel(
     auto n0 = normals[tri.x];
     auto n1 = normals[tri.y];
     auto n2 = normals[tri.z];
-    const float w = 1.0f - hit.u - hit.v;
-    const float3 normal = normalize(n0 * w + n1 * hit.u + n2 * hit.v);
-    // 使用Hapke模型
-    out_light_intensity[idx] = hapke_brdf(normal, light_direction, -rays[idx],
-                                          hapke_config.w, hapke_config) *
-                               scene_light_intensity;
-  } else {
-    // 没有命中，返回负数光照
-    out_light_intensity[idx] = 0.0f;
-  }
-}
-
-__global__ void batch_render_kernel(
-    const Intersection<float3> *hits, const float3 *vertices,
-    const float3 *normals, const uint3 *indices, const float *albedos,
-    const float3 *rays, const float3 ray_origin, const float3 light_direction,
-    const float scene_light_intensity, const HapkeConfig hapke_config,
-    const int ray_count, float *out_light_intensity) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= ray_count)
-    return;
-  const Intersection<float3> &hit = hits[idx];
-  if (hit.hit) {
-    // 这里可以根据 hit.triangle_index 和 hit.u, hit.v 来计算交点的法线和位置
-    auto tri = indices[hit.triangle_index];
-    auto n0 = normals[tri.x];
-    auto n1 = normals[tri.y];
-    auto n2 = normals[tri.z];
+    auto v0 = vertices[tri.x];
+    auto v1 = vertices[tri.y];
+    auto v2 = vertices[tri.z];
     auto a0 = albedos[tri.x];
     auto a1 = albedos[tri.y];
     auto a2 = albedos[tri.z];
     const float w = 1.0f - hit.u - hit.v;
-    const float3 normal = normalize(n0 * w + n1 * hit.u + n2 * hit.v);
+    const float3 smooth_normal = normalize(n0 * w + n1 * hit.u + n2 * hit.v);
     const float albedo = a0 * w + a1 * hit.u + a2 * hit.v;
-    // 使用Hapke模型
+    const float3 geometric_normal = normalize(cross(v1 - v0, v2 - v0));
+    const float3 light_dir = normalize(light_direction);
+    const float3 view_dir = normalize(-rays[idx]);
+    // 如果法线背向光源，直接为 0
+    // 这一步可以避免不必要的 shadow ray。
+    if (dot(smooth_normal, light_dir) <= 0.0f) {
+      out_light_intensity[idx] = 0.0f;
+      return;
+    }
+    // 相机射线交点
+    const float3 hit_point = ray_origin + rays[idx] * hit.t;
+    /**
+     * 阴影偏移，避免 shadow ray 与当前三角形发生自相交。
+     *
+     * 这里建议沿 light_dir 偏移，而不是沿 smooth_normal 偏移。
+     * 对地形来说，沿光线方向偏移更稳定。
+     */
+    const float3 shadow_origin = hit_point + light_dir * SHADOW_BIAS;
+    /**
+     * 对方向光来说，光源在无限远处。
+     * 因此只要沿 light_dir 任意距离内命中地形，就认为被遮挡。
+     */
+    const float shadow_t_max = 1e30f;
+    const bool in_shadow = trace_shadow_ray_any_hit(
+        nodes, root_index, vertices, indices, shadow_origin, light_dir,
+        hit.triangle_index, SHADOW_BIAS, shadow_t_max);
+    if (in_shadow) {
+      out_light_intensity[idx] = 0.0f;
+      return;
+    }
     out_light_intensity[idx] =
-        hapke_brdf(normal, light_direction, -rays[idx], albedo, hapke_config) *
+        hapke_brdf(smooth_normal, light_dir, view_dir, albedo, hapke_config) *
         scene_light_intensity;
   } else {
     // 没有命中，返回负数光照

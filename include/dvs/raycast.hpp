@@ -11,6 +11,7 @@
 #include <vector_types.h>
 
 #define RAND_SEED 114514
+#define SHADOW_BIAS 1e-3f
 
 namespace dvs {
 /**
@@ -87,16 +88,18 @@ void batch_intersect_kernel_cpu(const BVHNode<float3> *nodes, int root_index,
  * @param out_light_intensity 输出光照强度数组
  */
 __global__ void batch_render_kernel(
-    const Intersection<float3> *hits, const float3 *vertices,
-    const float3 *normals, const uint3 *indices, const float3 *rays,
-    const float3 ray_origin, const float3 light_direction,
-    const float scene_light_intensity, const HapkeConfig hapke_config,
-    const int ray_count, float *out_light_intensity);
+    const Intersection<float3> *hits, const BVHNode<float3> *nodes,
+    const int root_index, const float3 *vertices, const float3 *normals,
+    const uint3 *indices, const float3 *rays, const float3 ray_origin,
+    const float3 light_direction, const float scene_light_intensity,
+    const HapkeConfig hapke_config, const int ray_count,
+    float *out_light_intensity);
 
 __global__ void batch_render_kernel(
-    const Intersection<float3> *hits, const float3 *vertices,
-    const float3 *normals, const uint3 *indices, const float *albedos,
-    const float3 *rays, const float3 ray_origin, const float3 light_direction,
+    const Intersection<float3> *hits, const BVHNode<float3> *nodes,
+    const int root_index, const float3 *vertices, const float3 *normals,
+    const uint3 *indices, const float *albedos, const float3 *rays,
+    const float3 ray_origin, const float3 light_direction,
     const float scene_light_intensity, const HapkeConfig hapke_config,
     const int ray_count, float *out_light_intensity);
 class DvsRayCaster {
