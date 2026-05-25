@@ -15,7 +15,7 @@
 #include <string>
 
 namespace tools {
-class NoteOptions : public dvs::Options {
+class NoteOptions : public tools::Options {
 public:
   NoteOptions(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {

@@ -18,11 +18,11 @@
 int main(int argc, char **argv) {
   try {
     if (argc <= 1) {
-      dvs::Options::print_usage(argv[0]);
+      tools::Options::print_usage(argv[0]);
       return 1;
     }
 
-    const dvs::Options opts(argc, argv);
+    const tools::Options opts(argc, argv);
     dvs::SceneBundle<float3, uint3> scene;
     std::vector<dvs::FrameData<dvs::Vec3, dvs::Mat3>> frames;
     std::string error_message;

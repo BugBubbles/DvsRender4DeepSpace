@@ -1,18 +1,16 @@
 #pragma once
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 #include <string>
 
-namespace dvs {
+namespace tools {
 
 class Options {
 public:
   std::string scene_dir, dem_path, albedo_path, traj_path;
   std::string output_dir = "./output";
   std::string config_path = "./config/default.yaml";
-  float end_time = std::numeric_limits<float>::max();
 
   static void print_usage(const char *prog) {
     std::cout
