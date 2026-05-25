@@ -68,12 +68,14 @@ target_include_directories(dvs_cuda
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CUDAToolkit_INCLUDE_DIRS}/../targets/x86_64-linux/include
+        ${GDAL_INCLUDE_DIRS}
 )
 
 target_link_libraries(dvs_cuda
     PUBLIC
         CUDA::cudart
         Eigen3::Eigen
+        ${GDAL_LIBRARIES}
 )
 
 add_subdirectory(apps)
