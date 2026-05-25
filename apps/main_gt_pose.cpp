@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) / config.scene.time_resolution));
 
-    dvs::ProgressBar bar(total_steps);
+    dvs::ProgressBar bar(total_steps, "Generating GT Pose");
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
                                                    //
     float next_write_time = start_time;

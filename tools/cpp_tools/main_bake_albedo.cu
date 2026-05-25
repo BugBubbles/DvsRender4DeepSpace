@@ -9,7 +9,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <vector>
 
 namespace tools {
 class BakeOptions : public tools::Options {

@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) * config.scene.cam_fps));
 
-    dvs::ProgressBar bar(total_steps);
+    dvs::ProgressBar bar(total_steps, "Rendering frames");
     const float write_interval = 1.0f / config.scene.cam_fps;
     std::vector<float> light_frame_float(config.camera.width *
                                          config.camera.height);

@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
         std::round((end_time - start_time) / config.scene.blur_resolution));
     float step_time = config.scene.blur_resolution;
 
-    dvs::ProgressBar bar(total_steps);
+    dvs::ProgressBar bar(total_steps, "Rendering motion-blur frames");
     const float write_interval = 1.0f / config.scene.cam_fps;
     float next_write_time = start_time + write_interval;
 

@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
     std::size_t total_steps = static_cast<std::size_t>(
         std::round((end_time - start_time) / config.scene.time_resolution));
 
-    dvs::ProgressBar bar(total_steps);
+    dvs::ProgressBar bar(total_steps, "Generating events");
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
                                                    //
     std::vector<float> time_records(5, 0.0f);      // 用于记录不同阶段的时间

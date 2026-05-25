@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cpl_conv.h>
-#include <cstdint>
 #include <filesystem>
 #include <gdal_priv.h>
 #include <gdal_rat.h>
@@ -14,7 +13,6 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <string>
-#include <vector>
 
 namespace tools {
 class BuildOptions : public tools::Options {

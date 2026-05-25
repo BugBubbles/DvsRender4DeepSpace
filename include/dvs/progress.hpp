@@ -11,9 +11,10 @@ namespace dvs {
 
 class ProgressBar {
 public:
-  explicit ProgressBar(std::size_t total, std::size_t width = 40)
-      : total_(total), width_(width), start_(std::chrono::steady_clock::now()) {
-  }
+  explicit ProgressBar(const std::size_t total, const std::string &prefix = "",
+                       std::size_t width = 40)
+      : total_(total), width_(width), start_(std::chrono::steady_clock::now()),
+        prefix_(prefix) {}
 
   void update(std::size_t completed) {
     if (total_ == 0) {
@@ -35,7 +36,7 @@ public:
     for (std::size_t i = 0; i < width_; ++i) {
       oss << (i < filled ? '#' : '-');
     }
-    oss << "| " << std::fixed << std::setprecision(2) << (frac * 100.0) << "% "
+    oss << prefix_ << " | " << std::fixed << std::setprecision(2) << (frac * 100.0) << "% "
         << "Elapsed: " << to_hms(elapsed_sec)
         << " ETA: " << to_hms(static_cast<long long>(eta_sec));
     std::cout << oss.str() << std::flush;
@@ -59,6 +60,7 @@ private:
 
   std::size_t total_ = 0, completed_ = 0;
   std::size_t width_ = 0;
+  std::string prefix_;
   std::chrono::steady_clock::time_point start_;
 };
 
