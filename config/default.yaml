@@ -13,8 +13,7 @@ physic:                   # 这些参数都只对事件相机有效
   dark_current: 10.0           # 暗电流强度，单位是光强度
   refractory_time: 200e-6      # 不应期参数，取Davis346典型值
   hpf_time_constant: 100e-6    # 高通滤波器时间常数，通常是一个较大的值
-  shot_noise_freq: 10          # 散粒噪声发生频率，取Davis346典型值10 Hz/pix
-  shot_intensity: 5.0          # 散料噪声光子强度，默认取为暗电流值
+  shot_intensity: 8000          # 散料噪声光子强度，即单位光强等于多少个光子数
   readout_bandwidth: 5e6       # 行读写带宽，取Davis346典型值5000000，见于论文 10.1109/JSSC.2014.2342715 第7页
   readout_latency: 18e-9       # 单个事件流处理延迟，取Davis346典型值18 ns，同上论文，其中说明事件流上限生成速率为55 MHz
 

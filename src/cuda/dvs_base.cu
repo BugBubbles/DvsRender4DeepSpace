@@ -1,4 +1,5 @@
 #include "dvs/dvs_base.hpp"
+#include <cmath>
 #include <cuda_runtime.h>
 #include <vector_functions.h>
 
@@ -43,10 +44,9 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float shot_noise_freq,
-    const float shot_intensity, const float *depth_map, float *refractory_map,
-    float *last_log_intensity, Event *events, int *event_count,
-    curandState *rand_states) {
+    const float refractory_time, const float shot_intensity,
+    const float *depth_map, float *refractory_map, float *last_log_intensity,
+    Event *events, int *event_count, curandState *rand_states) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
@@ -55,17 +55,19 @@ __global__ void batch_generate_events_kernel(
   int idx = y * width + x;
   if (timestamp < refractory_map[idx])
     return;
-  float current = intensity_frame[idx] + dark_current;
-
   // 模拟散粒噪声
   // curandState local_state = rand_states[idx];
-  float shot_noise_prob =
-      1 - expf(-shot_noise_freq *
-               (timestamp - refractory_map[idx])); // 转换为每毫秒的概率
-  if (curand_uniform(rand_states + idx) < shot_noise_prob) {
-    current += shot_intensity;
-  }
-  // rand_states[idx] = local_state;
+  // float shot_noise_prob =
+  //     shot_noise_freq * (timestamp - refractory_map[idx]); //
+  //     转换为每秒的概率
+  // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
+  //   current += shot_intensity;
+  // }
+  float shot_frame =
+      curand_poisson(rand_states + idx,
+                     floorf(intensity_frame[idx] * shot_intensity)) /
+      shot_intensity;
+  float current = shot_frame + dark_current;
   // 光强转对数值
   float log_current = logf(current);
   if (last_log_intensity[idx] <= log_current - threshold_pos_map[idx]) {
@@ -88,10 +90,10 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float alpha, const float shot_noise_freq,
-    const float shot_intensity, const float *depth_map, float *refractory_map,
-    float *last_log_intensity, float *last_voltage, Event *events,
-    int *event_count, curandState *rand_states) {
+    const float refractory_time, const float alpha, const float shot_intensity,
+    const float *depth_map, float *refractory_map, float *last_log_intensity,
+    float *last_voltage, Event *events, int *event_count,
+    curandState *rand_states) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
@@ -100,17 +102,19 @@ __global__ void batch_generate_events_kernel(
   int idx = y * width + x;
   if (timestamp < refractory_map[idx])
     return;
-  float current = intensity_frame[idx] + dark_current;
-
   // 模拟散粒噪声
   // curandState local_state = rand_states[idx];
-  float shot_noise_prob =
-      1 - expf(-shot_noise_freq *
-               (timestamp - refractory_map[idx])); // 转换为每毫秒的概率
-  if (curand_uniform(rand_states + idx) < shot_noise_prob) {
-    current += shot_intensity;
-  }
-  // rand_states[idx] = local_state;
+  // float shot_noise_prob =
+  //     shot_noise_freq * (timestamp - refractory_map[idx]); //
+  //     转换为每秒的概率
+  // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
+  //   current += shot_intensity;
+  // }
+  float shot_frame =
+      curand_poisson(rand_states + idx,
+                     floorf(intensity_frame[idx] * shot_intensity)) /
+      shot_intensity;
+  float current = shot_frame + dark_current;
   // 光强转对数值
   float log_current = logf(current);
   // 高通滤波
@@ -137,10 +141,10 @@ __global__ void batch_generate_events_kernel(
     const float timestamp, const float *intensity_frame, const int width,
     const int height, const float *threshold_pos_map,
     const float *threshold_neg_map, const float dark_current,
-    const float refractory_time, const float alpha, const float shot_noise_freq,
-    const float shot_intensity, const float *depth_map, float *refractory_map,
-    float *last_log_intensity, float *last_voltage, Event *events,
-    int *event_count_row, int *event_count, curandState *rand_states) {
+    const float refractory_time, const float alpha, const float shot_intensity,
+    const float *depth_map, float *refractory_map, float *last_log_intensity,
+    float *last_voltage, Event *events, int *event_count_row, int *event_count,
+    curandState *rand_states) {
   int x = blockIdx.x * blockDim.x + threadIdx.x;
   int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height)
@@ -149,16 +153,19 @@ __global__ void batch_generate_events_kernel(
   int idx = y * width + x;
   if (timestamp < refractory_map[idx])
     return;
-  float current = intensity_frame[idx] + dark_current;
-
   // 模拟散粒噪声
   // curandState local_state = rand_states[idx];
-  float shot_noise_prob =
-      1 - expf(-shot_noise_freq *
-               (timestamp - refractory_map[idx])); // 转换为每毫秒的概率
-  if (curand_uniform(rand_states + idx) < shot_noise_prob) {
-    current += shot_intensity;
-  }
+  // float shot_noise_prob =
+  //     shot_noise_freq * (timestamp - refractory_map[idx]); //
+  //     转换为每秒的概率
+  // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
+  //   current += shot_intensity;
+  // }
+  float shot_frame =
+      curand_poisson(rand_states + idx,
+                     floorf(intensity_frame[idx] * shot_intensity)) /
+      shot_intensity;
+  float current = shot_frame + dark_current;
   // rand_states[idx] = local_state;
   // 光强转对数值
   float log_current = logf(current);

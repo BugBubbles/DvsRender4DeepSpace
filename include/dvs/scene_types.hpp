@@ -57,7 +57,7 @@ struct PhysicConfig {
   float dark_current, refractory_time;
   float hpf_time_constant;
   // 散料噪声参数
-  float shot_noise_freq, shot_intensity;
+  float shot_intensity;
   // AER读出延迟参数
   float readout_bandwidth, readout_latency;
 };

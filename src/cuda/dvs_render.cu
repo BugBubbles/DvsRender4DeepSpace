@@ -143,9 +143,6 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
   threshold_map_init_kernel<<<grid_size, block_size>>>(
       width_, height_, physic_config_.threshold_neg,
       physic_config_.threshold_noise, d_threshold_neg_map_);
-#endif
-
-#ifdef ENABLE_PHYSIC_EFFECTS
 #ifdef ENABLE_HIGH_PASS_FILTER
   CUDA_CHECK(cudaMalloc(&d_last_voltage_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for refractory map");
@@ -364,10 +361,9 @@ __global__ void batch_generate_events_kernel(
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, alpha_, physic_config_.shot_noise_freq,
-      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
-      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_row_,
-      d_event_count_, d_rand_states_);
+      physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
+      d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_last_voltage_,
+      d_events_, d_event_count_row_, d_event_count_, d_rand_states_);
 
   CUDA_CHECK(cudaMemcpy(h_event_count_row_.data(), d_event_count_row_,
                         sizeof(int) * height_, cudaMemcpyDeviceToHost),
@@ -385,18 +381,17 @@ __global__ void batch_generate_events_kernel(
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, alpha_, physic_config_.shot_noise_freq,
-      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
-      d_last_log_intensity_, d_last_voltage_, d_events_, d_event_count_,
-      d_rand_states_);
+      physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
+      d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_last_voltage_,
+      d_events_, d_event_count_, d_rand_states_);
 #else
   // 考虑噪声模型的事件仿真生成器
   batch_generate_events_kernel<<<grid_size, block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
-      physic_config_.refractory_time, physic_config_.shot_noise_freq,
-      physic_config_.shot_intensity, d_depth_map_, d_refractory_map_,
-      d_last_log_intensity_, d_events_, d_event_count_, d_rand_states_);
+      physic_config_.refractory_time, physic_config_.shot_intensity,
+      d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_events_,
+      d_event_count_, d_rand_states_);
 #endif
 #else
   // 理想事件生成器，不考虑噪声与高通滤波
