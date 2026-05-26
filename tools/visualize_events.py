@@ -1,9 +1,15 @@
 import numpy as np
 import cv2
+import argparse
+
+argsparser = argparse.ArgumentParser(description='Visualize DVS events from a binary file.')
+argsparser.add_argument('--file', type=str, default='../bin/output/events.bin', help='Path to the binary file containing DVS events.')
+argsparser.add_argument('--batch_size', type=int, default=30000, help='Number of events to read in each batch.')
+args = argsparser.parse_args()
 
 
-file_path = '../bin/output/events.bin'
-batch_size = 30000
+file_path = args.file
+batch_size = args.batch_size
 events_file = open(file_path, 'rb')
 
 event_dtype = np.dtype([

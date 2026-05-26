@@ -32,11 +32,11 @@ public:
     const double eta_sec = frac > 1e-8 ? elapsed_sec / frac - elapsed_sec : 0.0;
 
     std::ostringstream oss;
-    oss << "\r|";
+    oss << "\r" << prefix_ << " |";
     for (std::size_t i = 0; i < width_; ++i) {
       oss << (i < filled ? '#' : '-');
     }
-    oss << prefix_ << " | " << std::fixed << std::setprecision(2) << (frac * 100.0) << "% "
+    oss << "| " << std::fixed << std::setprecision(2) << (frac * 100.0) << "% "
         << "Elapsed: " << to_hms(elapsed_sec)
         << " ETA: " << to_hms(static_cast<long long>(eta_sec));
     std::cout << oss.str() << std::flush;
