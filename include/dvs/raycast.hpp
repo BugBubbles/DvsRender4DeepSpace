@@ -102,6 +102,20 @@ __global__ void batch_render_kernel(
     const float3 ray_origin, const float3 light_direction,
     const float scene_light_intensity, const HapkeConfig hapke_config,
     const int ray_count, float *out_light_intensity);
+
+// 超采样相关核函数
+__global__ void
+view_direction_batch_kernel(const int width, const int height, const float fx,
+                            const float fy, const float cx, const float cy,
+                            const float *camera_world, const float3 origin,
+                            const int super_sample_count,
+                            curandState *rand_states, float3 *out_rays);
+
+__global__ void batch_supersample_fuse_kernel(const int width, const int height,
+                                              const int super_sample_count,
+                                              const float *supersample_lights,
+                                              const float *supersample_depths,
+                                              float *lights, float *depths);
 class DvsRayCaster {
 public:
   DvsRayCaster(const SceneBundle<float3, uint3> &scene, const Config &config,
@@ -143,9 +157,21 @@ public:
       cudaFree(d_last_log_intensity_);
       d_last_log_intensity_ = nullptr;
     }
+    if (d_lights_step_ != nullptr) {
+      cudaFree(d_lights_step_);
+      d_lights_step_ = nullptr;
+    }
     if (d_depth_map_ != nullptr) {
       cudaFree(d_depth_map_);
       d_depth_map_ = nullptr;
+    }
+    if (d_depth_map_step_ != nullptr) {
+      cudaFree(d_depth_map_step_);
+      d_depth_map_step_ = nullptr;
+    }
+    if (d_super_rand_states_ != nullptr) {
+      cudaFree(d_super_rand_states_);
+      d_super_rand_states_ = nullptr;
     }
     if (d_events_ != nullptr) {
       cudaFree(d_events_);
@@ -204,8 +230,7 @@ public:
 
   void render_main(const float3 &camera_origin, const float *camera_world,
                    const float3 &light_dir, const float light_intensity,
-                   const float current_time, std::vector<Event> &events,
-                   float *time_records);
+                   const float current_time, std::vector<Event> &events);
 
   void initialize(const float frame_intensity);
 
@@ -223,7 +248,13 @@ private:
   SceneConfig scene_config_;
   // 上一帧的log强度，用于事件生成
   float *d_last_log_intensity_ = nullptr;
+  // 随机抖动相关数据，用于改善渲染图像质量
+  float *d_lights_ = nullptr;
+  float *d_lights_step_ = nullptr;
   float *d_depth_map_ = nullptr;
+  float *d_depth_map_step_ = nullptr;
+  curandState *d_super_rand_states_ = nullptr;
+  int supersample_factor_;
 #ifdef ENABLE_PHYSIC_EFFECTS
   // 不应期图，避免过快生成事件
   float *d_refractory_map_ = nullptr;
@@ -250,12 +281,11 @@ private:
   BVHNode<float3> *d_nodes_ = nullptr;
   // Triangle<float3> *d_tris_ = nullptr;
   float3 *d_vertices_, *d_normals_;
-  float *d_albedos_;
+  float *d_albedos_ = nullptr;
   uint3 *d_indices_;
   mutable float3 *d_rays_ = nullptr;
   mutable float3 ray_origin_;
   mutable Intersection<float3> *d_hits_ = nullptr;
-  mutable float *d_lights_ = nullptr;
   mutable Event *d_events_ = nullptr;
   mutable int *d_event_count_ = nullptr;
   mutable std::size_t ray_capacity_ = 0;

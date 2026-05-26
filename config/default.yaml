@@ -10,7 +10,7 @@ physic:                   # 这些参数都只对事件相机有效
   threshold_pos: 0.55          # ESIM 数据参考值
   threshold_neg: 0.41          # ESIM 数据参考值
   threshold_noise: 0.02        # 各个像素阈值浮动百分比
-  dark_current: 20.0           # 暗电流强度，单位是光强度
+  dark_current: 10.0           # 暗电流强度，单位是光强度
   refractory_time: 200e-6      # 不应期参数，取Davis346典型值
   hpf_time_constant: 100e-6    # 高通滤波器时间常数，通常是一个较大的值
   shot_intensity: 8000          # 散料噪声光子强度，即单位光强等于多少个光子数
@@ -23,7 +23,7 @@ scene:
   imu_fps: 200           # IMU输出fps 
   cam_fps: 30            # 相机输出fps
   time_resolution: 1e-5  # 仅对事件相机有效，事件相机的时间分辨率
-  supersample_factor: 16 # 对应Blender的采样次数，共计超采样平方次
+  supersample_factor: 2 # 对应Blender的采样次数，共计超采样平方次
   blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
 
 hapke:                   # Hapke模型参数，非必要不修改

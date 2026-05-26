@@ -32,8 +32,8 @@ __global__ void view_direction_batch_kernel(
   // rand_states[idx] = local_state;
 
   // 计算像素中心的视线方向
-  float px = (x + offset_x - cx - 0.5) / fx;
-  float py = (y + offset_y - cy - 0.5) / fy;
+  float px = (x + offset_x - cx) / fx;
+  float py = (y + offset_y - cy) / fy;
   float3 dir_camera = make_float3(px, py, -1.0f); // 摄像机空间的视线方向
   // 转换到世界空间
   float3 dir_world = make_float3(

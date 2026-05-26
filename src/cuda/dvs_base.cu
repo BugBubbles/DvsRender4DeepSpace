@@ -161,8 +161,7 @@ __global__ void batch_generate_events_kernel(
   //   current += shot_intensity;
   // }
   float shot_frame =
-      curand_poisson(rand_states + idx,
-                     floorf(intensity_frame[idx] * shot_intensity)) /
+      curand_poisson(rand_states + idx, intensity_frame[idx] * shot_intensity) /
       shot_intensity;
   float current = shot_frame + dark_current;
   // rand_states[idx] = local_state;
@@ -215,10 +214,10 @@ void row_delay_buffer(const int height, const int *event_count_row,
   last_row_idx[0] = current_row_idx; // 更新最后一行索引
 }
 
-__global__ void batch_aer_kernel(const int ray_count, Event *events,
+__global__ void batch_aer_kernel(const int *events_count, Event *events,
                                  float *delay_row) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= ray_count)
+  if (idx >= events_count[0])
     return;
   int y = events[idx].y;
   events[idx].timestamp += delay_row[y]; // 根据行延迟调整事件时间

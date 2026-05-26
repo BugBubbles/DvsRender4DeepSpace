@@ -88,11 +88,6 @@ int main(int argc, char **argv) {
     dvs::ProgressBar bar(total_steps, "Generating events");
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
                                                    //
-    std::vector<float> time_records(5, 0.0f);      // 用于记录不同阶段的时间
-#ifdef DEBUG
-    float time_start, time_end;
-    int test_id = 0;
-#endif
     float next_write_time = start_time;
     const float write_interval = 1.0f / config.scene.imu_fps;
 
@@ -129,8 +124,7 @@ int main(int argc, char **argv) {
       light_intensity = state.light_intensity;
 
       raycaster.render_main(camera_origin, camera_world, light_dir,
-                            light_intensity, current_time, events,
-                            time_records.data());
+                            light_intensity, current_time, events);
 
       // const std::vector<dvs::Event> events =
       // dvs_sensor.process_frame(current_time, light_frame);
@@ -141,38 +135,16 @@ int main(int argc, char **argv) {
       // 输出当前时间和相机速度作为轨迹信息，精度为9位小数，以imu_fps频率输出
       if (current_time >= next_write_time) {
         next_write_time += write_interval;
-#ifdef DEBUG
-        time_start = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
         events_out.write(reinterpret_cast<const char *>(events_buffer.data()),
                          events_buffer.size() * sizeof(dvs::Event));
-#ifdef DEBUG
-        time_end = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-        time_records[4] += (time_end - time_start);
-        time_start = time_end;
-#endif
         total_events += events_buffer.size();
         events_buffer.clear();
       }
       bar.update();
-#ifdef DEBUG
-      test_id++;
-      if (test_id > 100) {
-        break; // 只测试前100帧，实际使用时可以去掉这个限制
-      }
-#endif
     }
 
     std::cout << "Finished. Wrote " << total_events << " events to "
               << opts.output_dir << "\n";
-#ifdef DEBUG
-    std::cout << "Time for ray casting: " << time_records[0] << " seconds\n";
-    std::cout << "Time for intersecting:" << time_records[1] << " seconds\n";
-    std::cout << "Time for shading: " << time_records[2] << " seconds\n";
-    std::cout << "Time for event generation: " << time_records[3]
-              << " seconds\n";
-    std::cout << "Time for writing events: " << time_records[4] << " seconds\n";
-#endif
     events_out.close();
     return 0;
   } catch (const std::exception &ex) {

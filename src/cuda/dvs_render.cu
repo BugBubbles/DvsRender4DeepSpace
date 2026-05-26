@@ -37,9 +37,11 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
       fx_(config.camera.fx), fy_(config.camera.fy), cx_(config.camera.cx),
       cy_(config.camera.cy), width_(config.camera.width),
       height_(config.camera.height), physic_config_(config.physic),
-      scene_config_(config.scene) {
+      scene_config_(config.scene),
+      supersample_factor_(config.scene.supersample_factor) {
   const auto &nodes = scene.bvh_nodes;
   const auto &triangles = scene.bvh_triangles;
+  const int ss = supersample_factor_ * supersample_factor_;
   use_albedo_ = scene.use_albedo;
   if (use_albedo_) {
     std::cout << "Using albedo in rendering.\n";
@@ -106,12 +108,16 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
                "Failed to copy albedo data from host to device");
   }
   // 预分配足够的内存用于存储每一帧的光线、交点结果和光强度
-  CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_),
+  CUDA_CHECK(cudaMalloc(&d_rays_, sizeof(float3) * ray_count_ * ss),
              "Failed to allocate device memory for rays");
-  CUDA_CHECK(cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count_),
-             "Failed to allocate device memory for intersection results");
+  CUDA_CHECK(
+      cudaMalloc(&d_hits_, sizeof(Intersection<float3>) * ray_count_ * ss),
+      "Failed to allocate device memory for intersection results");
   CUDA_CHECK(cudaMalloc(&d_lights_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for light intensity buffer");
+  CUDA_CHECK(
+      cudaMalloc(&d_lights_step_, sizeof(float) * ray_count_ * ss),
+      "Failed to allocate device memory for light intensity step buffer");
   CUDA_CHECK(cudaMalloc(&d_last_log_intensity_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for last log intensity buffer");
   CUDA_CHECK(
@@ -119,10 +125,16 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
       "Failed to initialize last log intensity buffer");
   CUDA_CHECK(cudaMalloc(&d_depth_map_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for depth map");
+  CUDA_CHECK(cudaMalloc(&d_depth_map_step_, sizeof(float) * ray_count_ * ss),
+             "Failed to allocate device memory for depth map step buffer");
   CUDA_CHECK(cudaMalloc(&d_events_, sizeof(Event) * ray_count_),
              "Failed to allocate device memory for events");
   CUDA_CHECK(cudaMalloc(&d_event_count_, sizeof(int)),
              "Failed to allocate device memory for event count");
+  // 初始化随机状态
+  const int threads = 128;
+  int blocks = (ray_count_ + threads - 1) / threads;
+  unsigned seed = static_cast<unsigned>(std::time(nullptr));
 #ifdef ENABLE_PHYSIC_EFFECTS
   CUDA_CHECK(cudaMalloc(&d_refractory_map_, sizeof(float) * ray_count_),
              "Failed to allocate device memory for refractory map");
@@ -156,24 +168,28 @@ DvsRayCaster::DvsRayCaster(const SceneBundle<float3, uint3> &scene,
   }
   CUDA_CHECK(cudaMalloc(&d_rand_states_, sizeof(curandState) * ray_count_),
              "Failed to allocate device memory for random states");
-  // 初始化随机状态
-  const int threads = 128;
-  const int blocks = (ray_count_ + threads - 1) / threads;
-  unsigned seed = static_cast<unsigned>(std::time(nullptr));
+
   init_rand_states<<<blocks, threads>>>(d_rand_states_, ray_count_, seed);
 #ifdef ENABLE_AER_DELAY
   CUDA_CHECK(cudaMalloc(&d_event_count_row_, sizeof(int) * height_),
              "Failed to allocate device memory for event count per row");
   CUDA_CHECK(cudaMalloc(&d_delay_row_, sizeof(float) * height_),
              "Failed to initialize device delay row buffer");
-  h_event_count_row_.reserve(static_cast<std::size_t>(height_));
-  h_delay_row_.reserve(static_cast<std::size_t>(height_));
+  h_event_count_row_.resize(static_cast<std::size_t>(height_));
+  h_delay_row_.resize(static_cast<std::size_t>(height_));
   last_row_index_ = -1;
 
   unit_row_delay_ = 1 / physic_config_.readout_bandwidth;
 #endif
 #endif
 #endif
+  CUDA_CHECK(
+      cudaMalloc(&d_super_rand_states_, sizeof(curandState) * ray_count_ * ss),
+      "Failed to allocate device memory for random states");
+  // 初始化随机状态
+  blocks = (ray_count_ * ss + threads - 1) / threads;
+  init_rand_states<<<blocks, threads>>>(d_super_rand_states_, ray_count_ * ss,
+                                        seed);
 }
 
 void DvsRayCaster::initialize(const float frame_intensity) {
@@ -198,12 +214,18 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
                         cudaMemcpyHostToDevice),
              "Failed to copy camera world matrix from host to device");
   // 生成视线
-  dim3 block_size(16, 16);
-  dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
-                 (height_ + block_size.y - 1) / block_size.y);
+  // dim3 block_size(16, 16);
+  // dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+  //                (height_ + block_size.y - 1) / block_size.y);
+  dim3 block_size(16, 16, 4); // 每个块处理16x16像素和4次超采样
+  dim3 grid_size(
+      (width_ + block_size.x - 1) / block_size.x,
+      (height_ + block_size.y - 1) / block_size.y,
+      (supersample_factor_ * supersample_factor_ + block_size.z - 1) /
+          block_size.z);
   view_direction_batch_kernel<<<grid_size, block_size>>>(
       width_, height_, fx_, fy_, cx_, cy_, d_camera_world, camera_origin,
-      d_rays_);
+      supersample_factor_, d_super_rand_states_, d_rays_);
   // cudaDeviceSynchronize();
   // err = cudaGetLastError();
   // std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
@@ -211,11 +233,13 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
   //     width, height, tri_count_, node_count_, d_nodes_, d_tris_, d_rays_,
   //     d_hits_);
+  const int ss = supersample_factor_ * supersample_factor_;
   const int threads = 128; // 或 256
-  const int blocks = (ray_count_ + threads - 1) / threads;
+  const int blocks = (ray_count_ * ss + threads - 1) / threads;
+
   batch_intersect_kernel<<<blocks, threads>>>(
       d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_, d_rays_,
-      camera_origin, ray_count_, d_hits_, d_depth_map_);
+      camera_origin, ray_count_ * ss, d_hits_, d_depth_map_step_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -227,18 +251,25 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
     batch_render_kernel<<<blocks, threads>>>(
         d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
         d_albedos_, d_rays_, camera_origin, light_dir, light_intensity,
-        hapke_config_, ray_count_, d_lights_);
+        hapke_config_, ray_count_ * ss, d_lights_step_);
   } else {
     batch_render_kernel<<<blocks, threads>>>(
         d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
         d_rays_, camera_origin, light_dir, light_intensity, hapke_config_,
-        ray_count_, d_lights_);
+        ray_count_ * ss, d_lights_step_);
   }
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
 #endif
+  dim3 pixel_block_size(16, 16);
+  dim3 pixel_grid_size((width_ + pixel_block_size.x - 1) / pixel_block_size.x,
+                       (height_ + pixel_block_size.y - 1) / pixel_block_size.y);
+  // 归约超采样结果至每个像素
+  batch_supersample_fuse_kernel<<<pixel_grid_size, pixel_block_size>>>(
+      width_, height_, supersample_factor_, d_lights_step_, d_depth_map_step_,
+      d_lights_, d_depth_map_);
   // 将结果从GPU复制回CPU
   light_frame.resize(static_cast<std::size_t>(ray_count_));
   CUDA_CHECK(cudaMemcpy(light_frame.data(), d_lights_,
@@ -264,7 +295,7 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
                                const float3 &light_dir,
                                const float light_intensity,
                                const float current_time,
-                               std::vector<Event> &events, float *test_time) {
+                               std::vector<Event> &events) {
 #ifdef DEBUG
   auto err = cudaGetLastError();
 #endif
@@ -275,20 +306,19 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
                         cudaMemcpyHostToDevice),
              "Failed to copy camera world matrix from host to device");
   // 生成视线
-  dim3 block_size(16, 16);
-  dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
-                 (height_ + block_size.y - 1) / block_size.y);
-#ifdef DEBUG
-  float start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
+  // dim3 block_size(16, 16);
+  // dim3 grid_size((width_ + block_size.x - 1) / block_size.x,
+  //                (height_ + block_size.y - 1) / block_size.y);
+  dim3 block_size(16, 16, 4); // 每个块处理16x16像素和4次超采样
+  dim3 grid_size(
+      (width_ + block_size.x - 1) / block_size.x,
+      (height_ + block_size.y - 1) / block_size.y,
+      (supersample_factor_ * supersample_factor_ + block_size.z - 1) /
+          block_size.z);
   view_direction_batch_kernel<<<grid_size, block_size>>>(
       width_, height_, fx_, fy_, cx_, cy_, d_camera_world, camera_origin,
-      d_rays_);
+      supersample_factor_, d_super_rand_states_, d_rays_);
   cudaFree(d_camera_world);
-#ifdef DEBUG
-  float end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-  test_time[0] = end_time - start_time;
-#endif
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -298,67 +328,52 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
   //     width, height, tri_count_, node_count_, d_nodes_, d_tris_, d_rays_,
   //     d_hits_);
+  const int ss = supersample_factor_ * supersample_factor_;
   const int threads = 128; // 或 256
-  const int blocks = (ray_count_ + threads - 1) / threads;
-#ifdef DEBUG
-  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
+  int blocks = (ray_count_ * ss + threads - 1) / threads;
   batch_intersect_kernel<<<blocks, threads>>>(
       d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_, d_rays_,
-      camera_origin, ray_count_, d_hits_, d_depth_map_);
-#ifdef DEBUG
-  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-  test_time[1] += end_time - start_time;
-#endif
+      camera_origin, ray_count_ * ss, d_hits_, d_depth_map_step_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
 #endif
 
-#ifdef DEBUG
-  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
   // 计算光照，使用Hapke模型
   if (use_albedo_) {
     batch_render_kernel<<<blocks, threads>>>(
         d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
         d_albedos_, d_rays_, camera_origin, light_dir, light_intensity,
-        hapke_config_, ray_count_, d_lights_);
+        hapke_config_, ray_count_ * ss, d_lights_step_);
   } else {
     batch_render_kernel<<<blocks, threads>>>(
         d_hits_, d_nodes_, root_index_, d_vertices_, d_normals_, d_indices_,
         d_rays_, camera_origin, light_dir, light_intensity, hapke_config_,
-        ray_count_, d_lights_);
+        ray_count_ * ss, d_lights_step_);
   }
-#ifdef DEBUG
-  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-  test_time[2] += end_time - start_time;
-#endif
+  dim3 pixel_block_size(16, 16);
+  dim3 pixel_grid_size((width_ + pixel_block_size.x - 1) / pixel_block_size.x,
+                       (height_ + pixel_block_size.y - 1) / pixel_block_size.y);
+  // 归约超采样结果至每个像素
+  batch_supersample_fuse_kernel<<<pixel_block_size, pixel_grid_size>>>(
+      width_, height_, supersample_factor_, d_lights_step_, d_depth_map_step_,
+      d_lights_, d_depth_map_);
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
   std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
 #endif
   // 在GPU上生成事件
-  /*
-__global__ void batch_generate_events_kernel(
-    const float timestamp, const float *intensity_frame, const int width,
-    const int height, const float threshold_pos, const float threshold_neg,
-    float *last_log_intensity, Event *events, int *event_count)
-*/
   CUDA_CHECK(cudaMemset(d_event_count_, 0, sizeof(int)),
              "Failed to initialize event count");
-#ifdef DEBUG
-  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
 
 #ifdef ENABLE_PHYSIC_EFFECTS
 #ifdef ENABLE_HIGH_PASS_FILTER
 #ifdef ENABLE_AER_DELAY
   CUDA_CHECK(cudaMemset(d_event_count_row_, 0, sizeof(int) * height_),
              "Failed to initialize event count per row");
-  batch_generate_events_kernel<<<grid_size, block_size>>>(
+  batch_generate_events_kernel<<<pixel_grid_size, pixel_block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
       physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
@@ -375,18 +390,21 @@ __global__ void batch_generate_events_kernel(
   CUDA_CHECK(cudaMemcpy(d_delay_row_, h_delay_row_.data(),
                         sizeof(float) * height_, cudaMemcpyHostToDevice),
              "Failed to copy updated delay row from host to device");
-  batch_aer_kernel<<<blocks, threads>>>(height_, d_events_, d_delay_row_);
-#endif
+  blocks = (ray_count_ + threads - 1) / threads;
+  batch_aer_kernel<<<blocks, threads>>>(d_event_count_, d_events_,
+                                        d_delay_row_);
+#else
   // 考虑噪声模型与高通模型的事件仿真生成器
-  batch_generate_events_kernel<<<grid_size, block_size>>>(
+  batch_generate_events_kernel<<<pixel_grid_size, pixel_block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
       physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
       d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_last_voltage_,
       d_events_, d_event_count_, d_rand_states_);
+#endif
 #else
   // 考虑噪声模型的事件仿真生成器
-  batch_generate_events_kernel<<<grid_size, block_size>>>(
+  batch_generate_events_kernel<<<pixel_grid_size, pixel_block_size>>>(
       current_time, d_lights_, width_, height_, d_threshold_pos_map_,
       d_threshold_neg_map_, physic_config_.dark_current,
       physic_config_.refractory_time, physic_config_.shot_intensity,
@@ -395,16 +413,12 @@ __global__ void batch_generate_events_kernel(
 #endif
 #else
   // 理想事件生成器，不考虑噪声与高通滤波
-  batch_generate_events_kernel<<<grid_size, block_size>>>(
+  batch_generate_events_kernel<<<pixel_grid_size, pixel_block_size>>>(
       current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
       physic_config_.threshold_neg, d_depth_map_, d_last_log_intensity_,
       d_events_, d_event_count_);
 #endif
 
-#ifdef DEBUG
-  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-  test_time[3] += end_time - start_time;
-#endif
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
@@ -412,9 +426,6 @@ __global__ void batch_generate_events_kernel(
             << "\n";
 #endif
   int event_count = 0;
-#ifdef DEBUG
-  start_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-#endif
   CUDA_CHECK(cudaMemcpy(&event_count, d_event_count_, sizeof(int),
                         cudaMemcpyDeviceToHost),
              "Failed to copy event count from device to host");
@@ -423,9 +434,5 @@ __global__ void batch_generate_events_kernel(
   CUDA_CHECK(cudaMemcpy(events.data(), d_events_, sizeof(Event) * event_count,
                         cudaMemcpyDeviceToHost),
              "Failed to copy events from device to host");
-#ifdef DEBUG
-  end_time = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-  test_time[4] += end_time - start_time;
-#endif
 }
 } // namespace dvs

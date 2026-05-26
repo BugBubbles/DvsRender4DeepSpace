@@ -63,7 +63,7 @@ void row_delay_buffer(const int height, const int *event_count_row,
                       const float unit_row_delay, const float unit_col_delay,
                       float *delay_row, int *last_row_idx);
 
-__global__ void batch_aer_kernel(const int height, Event *events,
+__global__ void batch_aer_kernel(const int *event_count, Event *events,
                                  float *row_delay);
 #endif
 #endif

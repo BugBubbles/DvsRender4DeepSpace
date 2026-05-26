@@ -257,7 +257,11 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
       }
       continue;
     }
-
+    
+    if (sp >= kMaxStackSize) {
+      printf("Warning: stack overflow, aborting ray.\n");
+      break;
+    }
     // Internal node
     float dist[2];
     int mask = intersect_two_children(ray_origin, idir, kRayEps, t_max,
@@ -279,11 +283,6 @@ __global__ void batch_intersect_kernel(const BVHNode<float3> *nodes,
       stack[sp++] = node.left;
     } else {
       stack[sp++] = node.right;
-    }
-
-    if (sp >= kMaxStackSize) {
-      printf("Warning: stack overflow, aborting ray.\n");
-      break;
     }
   }
   if (hit.hit > 0) {
