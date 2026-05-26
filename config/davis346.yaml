@@ -1,0 +1,38 @@
+intrinsic:                 # 事件相机、普通相机、模糊相机和深度相机共享
+  width: 346
+  height: 260
+  fx: 226.3802
+  fy: 226.1500
+  cx: 173.6471
+  cy: 133.7327
+
+physic:                   # 这些参数都只对事件相机有效
+  threshold_pos: 0.55          # prophesee 数据参考值
+  threshold_neg: 0.41          # prophesee 数据参考值
+  threshold_noise: 0.02        # 各个像素阈值浮动百分比
+  dark_current: 10.0           # 暗电流强度，单位是光强度
+  refractory_time: 200e-6      # 不应期参数，取Davis346典型值
+  hpf_time_constant: 100e-6    # 高通滤波器时间常数，通常是一个较大的值
+  shot_intensity: 8000          # 散料噪声光子强度，即单位光强等于多少个光子数
+  readout_bandwidth: 5e6       # 行读写带宽，取Davis346典型值5000000，见于论文 10.1109/JSSC.2014.2342715 第7页
+  readout_latency: 18e-9       # 单个事件流处理延迟，取Davis346典型值18 ns，同上论文，其中说明事件流上限生成速率为55 MHz
+
+scene:
+  frame_count: 201
+  fps: 24.0              # 场景轨迹fps，对应当前仿真物理世界总时长 = frame_count / fps
+  imu_fps: 200           # IMU输出fps 
+  cam_fps: 30            # 相机输出fps
+  time_resolution: 1e-5  # 仅对事件相机有效，事件相机的时间分辨率
+  supersample_factor: 16 # 对应Blender的采样次数，共计超采样平方次
+  blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
+
+hapke:                   # Hapke模型参数，非必要不修改
+  b: 0.24
+  c: 0.305
+  hS: 0.08
+  hC: 1.0
+  thetap: 0.453786 # 26.0 * kPi / 180.0
+  w: 0.324
+  B_S0: 2.42
+  B_C0: 0.0
+  phi: 0.3
