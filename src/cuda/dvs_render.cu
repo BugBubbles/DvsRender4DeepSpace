@@ -356,7 +356,7 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   dim3 pixel_grid_size((width_ + pixel_block_size.x - 1) / pixel_block_size.x,
                        (height_ + pixel_block_size.y - 1) / pixel_block_size.y);
   // 归约超采样结果至每个像素
-  batch_supersample_fuse_kernel<<<pixel_block_size, pixel_grid_size>>>(
+  batch_supersample_fuse_kernel<<<pixel_grid_size, pixel_block_size>>>(
       width_, height_, supersample_factor_, d_lights_step_, d_depth_map_step_,
       d_lights_, d_depth_map_);
 #ifdef DEBUG
