@@ -68,7 +68,8 @@ __global__ void batch_supersample_fuse_kernel(const int width, const int height,
     for (int ss_x = 0; ss_x < super_sample_count; ++ss_x) {
       int ss_idx = pixel_idx * super_sample_count * super_sample_count +
                    ss_y * super_sample_count + ss_x;
-      if (supersample_depths[ss_idx] <= 0.0f) {
+      if (supersample_lights[ss_idx] <= 0.0f ||
+          supersample_depths[ss_idx] <= 0.0f) {
         continue; // 跳过无效的深度样本
       }
       fused_light += supersample_lights[ss_idx];
@@ -76,7 +77,13 @@ __global__ void batch_supersample_fuse_kernel(const int width, const int height,
       valid_samples++;
     }
   }
-  lights[pixel_idx] = fused_light / valid_samples;
-  depths[pixel_idx] = fused_depth / valid_samples;
+  if (valid_samples == 0) {
+    lights[pixel_idx] = 0.0f;
+    depths[pixel_idx] = 0.0f;
+    return;
+  } else {
+    lights[pixel_idx] = fused_light / valid_samples;
+    depths[pixel_idx] = fused_depth / valid_samples;
+  }
 }
 } // namespace dvs

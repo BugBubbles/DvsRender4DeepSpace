@@ -243,7 +243,9 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
+  }
 #endif
   cudaFree(d_camera_world);
   // 计算光照，使用Hapke模型
@@ -261,7 +263,9 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+  }
 #endif
   dim3 pixel_block_size(16, 16);
   dim3 pixel_grid_size((width_ + pixel_block_size.x - 1) / pixel_block_size.x,
@@ -322,7 +326,9 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Ray Casting]: " << cudaGetErrorString(err) << "\n";
+  }
 #endif
   // 进行批量求交，暴力枚举法
   // intersect_brute_batch_kernel<<<grid_size, block_size>>>(
@@ -337,7 +343,9 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Intersecting]: " << cudaGetErrorString(err) << "\n";
+  }
 #endif
 
   // 计算光照，使用Hapke模型
@@ -362,7 +370,9 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Rendering]: " << cudaGetErrorString(err) << "\n";
+  }
 #endif
   // 在GPU上生成事件
   CUDA_CHECK(cudaMemset(d_event_count_, 0, sizeof(int)),
@@ -379,7 +389,14 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
       physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
       d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_last_voltage_,
       d_events_, d_event_count_row_, d_event_count_, d_rand_states_);
-
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
+              << "\n";
+  }
+#endif
   CUDA_CHECK(cudaMemcpy(h_event_count_row_.data(), d_event_count_row_,
                         sizeof(int) * height_, cudaMemcpyDeviceToHost),
              "Failed to copy event count per row from device to host");
@@ -393,6 +410,13 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
   blocks = (ray_count_ + threads - 1) / threads;
   batch_aer_kernel<<<blocks, threads>>>(d_event_count_, d_events_,
                                         d_delay_row_);
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    std::cout << "Error in [AER]: " << cudaGetErrorString(err) << "\n";
+  }
+#endif
 #else
   // 考虑噪声模型与高通模型的事件仿真生成器
   batch_generate_events_kernel<<<pixel_grid_size, pixel_block_size>>>(
@@ -401,6 +425,14 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
       physic_config_.refractory_time, alpha_, physic_config_.shot_intensity,
       d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_last_voltage_,
       d_events_, d_event_count_, d_rand_states_);
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
+              << "\n";
+  }
+#endif
 #endif
 #else
   // 考虑噪声模型的事件仿真生成器
@@ -410,6 +442,14 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
       physic_config_.refractory_time, physic_config_.shot_intensity,
       d_depth_map_, d_refractory_map_, d_last_log_intensity_, d_events_,
       d_event_count_, d_rand_states_);
+#ifdef DEBUG
+  cudaDeviceSynchronize();
+  err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
+              << "\n";
+  }
+#endif
 #endif
 #else
   // 理想事件生成器，不考虑噪声与高通滤波
@@ -417,14 +457,16 @@ void DvsRayCaster::render_main(const float3 &camera_origin,
       current_time, d_lights_, width_, height_, physic_config_.threshold_pos,
       physic_config_.threshold_neg, d_depth_map_, d_last_log_intensity_,
       d_events_, d_event_count_);
-#endif
-
 #ifdef DEBUG
   cudaDeviceSynchronize();
   err = cudaGetLastError();
-  std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
-            << "\n";
+  if (err != cudaSuccess) {
+    std::cout << "Error in [Event Generation]: " << cudaGetErrorString(err)
+              << "\n";
+  }
 #endif
+#endif
+
   int event_count = 0;
   CUDA_CHECK(cudaMemcpy(&event_count, d_event_count_, sizeof(int),
                         cudaMemcpyDeviceToHost),

@@ -62,10 +62,12 @@ __global__ void batch_generate_events_kernel(
   // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
   //   current += shot_intensity;
   // }
-  float shot_frame =
-      curand_poisson(rand_states + idx,
-                     floorf(intensity_frame[idx] * shot_intensity)) /
-      shot_intensity;
+  float lambda = intensity_frame[idx] * shot_intensity;
+  if (lambda < 0 || isnan(lambda) || isinf(lambda)) {
+    // 处理无效的lambda值，避免curand_poisson崩溃
+    lambda = 0.0f;
+  }
+  float shot_frame = curand_poisson(rand_states + idx, lambda) / shot_intensity;
   float current = shot_frame + dark_current;
   // 光强转对数值
   float log_current = logf(current);
@@ -109,10 +111,12 @@ __global__ void batch_generate_events_kernel(
   // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
   //   current += shot_intensity;
   // }
-  float shot_frame =
-      curand_poisson(rand_states + idx,
-                     floorf(intensity_frame[idx] * shot_intensity)) /
-      shot_intensity;
+  float lambda = intensity_frame[idx] * shot_intensity;
+  if (lambda < 0 || isnan(lambda) || isinf(lambda)) {
+    // 处理无效的lambda值，避免curand_poisson崩溃
+    lambda = 0.0f;
+  }
+  float shot_frame = curand_poisson(rand_states + idx, lambda) / shot_intensity;
   float current = shot_frame + dark_current;
   // 光强转对数值
   float log_current = logf(current);
@@ -153,16 +157,17 @@ __global__ void batch_generate_events_kernel(
   if (timestamp < refractory_map[idx])
     return;
   // 模拟散粒噪声
-  // curandState local_state = rand_states[idx];
-  // float shot_noise_prob =
-  //     shot_noise_freq * (timestamp - refractory_map[idx]); //
-  //     转换为每秒的概率
+  // float current = intensity_frame[idx] + dark_current;
+  // float shot_noise_prob = 10 * (timestamp - refractory_map[idx]);
   // if (curand_uniform(rand_states + idx) < shot_noise_prob) {
-  //   current += shot_intensity;
+  //   current += 3.0f;
   // }
-  float shot_frame =
-      curand_poisson(rand_states + idx, intensity_frame[idx] * shot_intensity) /
-      shot_intensity;
+  float lambda = intensity_frame[idx] * shot_intensity;
+  if (lambda < 0 || isnan(lambda) || isinf(lambda)) {
+    // 处理无效的lambda值，避免curand_poisson崩溃
+    lambda = 0.0f;
+  }
+  float shot_frame = curand_poisson(rand_states + idx, lambda) / shot_intensity;
   float current = shot_frame + dark_current;
   // rand_states[idx] = local_state;
   // 光强转对数值
