@@ -565,11 +565,6 @@ void CameraTrajectory::RotationBezierCurve::evaluate(
 // CameraTrajectory
 // ============================================================================
 
-CameraTrajectory::CameraTrajectory(
-    const std::vector<FrameData<Vec3, Mat3>> &frames, float fps) {
-  build(frames, fps);
-}
-
 bool CameraTrajectory::valid() const {
   return px_.valid() && py_.valid() && pz_.valid() && rotation_.valid();
 }
@@ -610,7 +605,17 @@ Vec3 CameraTrajectory::normalized_vector_derivative(const Vec3 &v_raw,
 }
 
 void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
-                             float fps) {
+                             float fps, std::vector<float> &translation,
+                             std::vector<float> &rotation) {
+  // 获取相机中心到轨迹点的变换矩阵
+  const Vec3 trans = Vec3(translation[0], translation[1], translation[2]);
+  // 将欧拉角转换为旋转矩阵，沿用 ZYX 顺序，使用 Eigen 的旋转矩阵构造函数
+  Eigen::AngleAxisf rot_x(rotation[0], Vec3::UnitX());
+  Eigen::AngleAxisf rot_y(rotation[1], Vec3::UnitY());
+  Eigen::AngleAxisf rot_z(rotation[2], Vec3::UnitZ());
+  const Mat3 rot_mat = rot_z.toRotationMatrix() * rot_y.toRotationMatrix() *
+                       rot_x.toRotationMatrix();
+
   fps_ = fps;
 
   px_.clear();
@@ -668,18 +673,23 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
 
   Eigen::Quaternionf prev_q = Eigen::Quaternionf::Identity();
   bool has_prev_q = false;
+  Eigen::Quaternionf q;
+  Vec3 cam_cnt;
+  Mat3 cam_world;
 
   for (std::size_t i = 0; i < n; ++i) {
     const auto &f = frames[i];
 
     // Camera position.
-    xs[i] = f.camera_origin.x();
-    ys[i] = f.camera_origin.y();
-    zs[i] = f.camera_origin.z();
+    cam_cnt = rot_mat * (f.camera_origin + trans);
+    xs[i] = cam_cnt.x();
+    ys[i] = cam_cnt.y();
+    zs[i] = cam_cnt.z();
 
     // Camera orientation.
-    Eigen::Quaternionf q = matrix_to_quaternion_continuous(
-        f.camera_world, has_prev_q ? &prev_q : nullptr);
+    cam_world = rot_mat * f.camera_world;
+    q = matrix_to_quaternion_continuous(cam_world,
+                                        has_prev_q ? &prev_q : nullptr);
 
     q.normalize();
 
@@ -689,7 +699,7 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
     rotations[i] = q;
 
     // Light direction.
-    Vec3 ld = f.light_dir;
+    Vec3 ld = rot_mat * f.light_dir;
     const float ld_norm = ld.norm();
 
     if (ld_norm > 1e-12f) {

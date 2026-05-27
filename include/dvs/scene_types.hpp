@@ -67,6 +67,7 @@ struct SceneConfig {
   float fps, imu_fps, cam_fps;
   float time_resolution, blur_resolution;
   int supersample_factor;
+  std::vector<float> translation, rotation;
 };
 // Hapke模型参数
 struct HapkeConfig {

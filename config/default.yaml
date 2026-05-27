@@ -23,8 +23,14 @@ scene:
   imu_fps: 200           # IMU输出fps 
   cam_fps: 30            # 相机输出fps
   time_resolution: 1e-5  # 仅对事件相机有效，事件相机的时间分辨率
-  supersample_factor: 2 # 对应Blender的采样次数，共计超采样平方次
+  supersample_factor: 4 # 对应Blender的采样次数，共计超采样平方次
   blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
+  # # 用于左目
+  # translation: [0, 0, 0] # 相机光心与轨迹中心的平移矢量
+  # rotation: [0, 0, 0]   # 相机姿态与轨迹姿态的三轴欧拉角, ZYX 顺序
+  # 用于右目
+  translation: [0, 20, 0] # 相机光心与轨迹中心的平移矢量
+  rotation: [0, 0, 0]   # 相机姿态与轨迹姿态的三轴欧拉角, ZYX 顺序
 
 hapke:                   # Hapke模型参数，非必要不修改
   b: 0.24

@@ -136,6 +136,36 @@ bool safe_stof(const std::string &s, float &out) {
   auto [ptr, ec] = std::from_chars(first, last, out);
   return ec == std::errc{} && ptr == last;
 }
+// 字符串列表转 float 列表'[a, b, c]'，失败返回 false
+bool safe_stof_list(const std::string &s, std::vector<float> &out) {
+  out.clear();
+  if (s.size() < 2 || s.front() != '[' || s.back() != ']') {
+    return false;
+  }
+  std::string inner = s.substr(1, s.size() - 2);
+  std::istringstream ss(inner);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    // 去除首尾空格
+    size_t start = 0;
+    while (start < item.size() &&
+           std::isspace(static_cast<unsigned char>(item[start]))) {
+      ++start;
+    }
+    size_t end = item.size();
+    while (end > start &&
+           std::isspace(static_cast<unsigned char>(item[end - 1]))) {
+      --end;
+    }
+    std::string trimmed = item.substr(start, end - start);
+    float value;
+    if (!safe_stof(trimmed, value)) {
+      return false;
+    }
+    out.push_back(value);
+  }
+  return true;
+}
 
 Config::Config(const std::string &config_file, std::string &err) {
 
@@ -222,6 +252,12 @@ Config::Config(const std::string &config_file, std::string &err) {
     return;
   if (!extract_required(scene_map, "scene", "blur_resolution",
                         scene.blur_resolution, err, safe_stof))
+    return;
+  if (!extract_required(scene_map, "scene", "translation", scene.translation,
+                        err, safe_stof_list))
+    return;
+  if (!extract_required(scene_map, "scene", "rotation", scene.rotation, err,
+                        safe_stof_list))
     return;
 
   const auto &hapke_map = kv["hapke"];

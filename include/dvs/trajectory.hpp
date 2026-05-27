@@ -82,9 +82,14 @@ class CameraTrajectory {
 public:
   CameraTrajectory() = default;
 
-  CameraTrajectory(const std::vector<FrameData<Vec3, Mat3>> &frames, float fps);
+  CameraTrajectory(const std::vector<FrameData<Vec3, Mat3>> &frames,
+                   SceneConfig &scene_config) {
+    build(frames, scene_config.fps, scene_config.translation,
+          scene_config.rotation);
+  }
 
-  void build(const std::vector<FrameData<Vec3, Mat3>> &frames, float fps);
+  void build(const std::vector<FrameData<Vec3, Mat3>> &frames, float fps,
+             std::vector<float> &translation, std::vector<float> &rotation);
 
   bool valid() const;
   std::size_t size() const;

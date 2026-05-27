@@ -57,7 +57,7 @@ int main(int argc, char **argv) {
     }
 
     // 使用样条曲线获取连续位姿轨迹
-    dvs::CameraTrajectory traj(frames, config.scene.fps);
+    dvs::CameraTrajectory traj(frames, config.scene);
     std::string motion_output_path = opts.output_dir + "/gt_motion.txt";
     std::string pose_output_path = opts.output_dir + "/gt_pose.txt";
     // 如果路径不存在，则创建目录

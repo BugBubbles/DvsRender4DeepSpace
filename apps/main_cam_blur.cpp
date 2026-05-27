@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
     }
 
     // 使用样条曲线获取连续位姿轨迹
-    dvs::CameraTrajectory traj(frames, config.scene.fps);
+    dvs::CameraTrajectory traj(frames, config.scene);
     dvs::BVHBuildParams params; // 可使用默认参数
     int root_index = dvs::BVHBuilder::build(
         params, scene.bvh_nodes, scene.bvh_triangles, scene.vertices);
