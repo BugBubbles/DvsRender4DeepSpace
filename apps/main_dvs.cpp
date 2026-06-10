@@ -1,19 +1,34 @@
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
-#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
 #include "bvh/build.h"
 #include "dvs/dvs_base.hpp"
+#include "dvs/dvs_writer.hpp"
 #include "dvs/progress.hpp"
 #include "dvs/raycast.hpp"
 #include "dvs/scene_data.hpp"
 #include "dvs/scene_types.hpp"
 #include "dvs/trajectory.hpp"
 #include "tools/cli.hpp"
+
+namespace dvs {
+std::unique_ptr<dvs::EventStreamWriter>
+make_event_writer(const tools::Options &opts) {
+  if (opts.event_format == "hdf5") {
+    return std::make_unique<dvs::Hdf5EventStreamWriter>(opts.output_dir +
+                                                        "/events.h5");
+  } else if (opts.event_format == "bin") {
+    return std::make_unique<dvs::BinaryEventStreamWriter>(opts.output_dir +
+                                                          "/events.bin");
+  } else {
+    throw std::runtime_error("unsupported event format: " + opts.event_format);
+  }
+}
+} // namespace dvs
 
 int main(int argc, char **argv) {
   try {
@@ -67,14 +82,8 @@ int main(int argc, char **argv) {
     if (!std::filesystem::exists(output_dir)) {
       std::filesystem::create_directories(output_dir);
     }
-    std::string events_output_path = opts.output_dir + "/events.bin";
-    std::ofstream events_out(events_output_path, std::ios::binary);
-    if (!events_out) {
-      throw std::runtime_error("failed to open output file: " +
-                               events_output_path);
-    }
-
-    std::size_t total_events = 0;
+    std::unique_ptr<dvs::EventStreamWriter> events_out =
+        dvs::make_event_writer(opts);
 
     size_t frame_count =
         std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
@@ -135,17 +144,19 @@ int main(int argc, char **argv) {
       // 输出当前时间和相机速度作为轨迹信息，精度为9位小数，以imu_fps频率输出
       if (current_time >= next_write_time) {
         next_write_time += write_interval;
-        events_out.write(reinterpret_cast<const char *>(events_buffer.data()),
-                         events_buffer.size() * sizeof(dvs::Event));
-        total_events += events_buffer.size();
+        events_out->append(std::move(events_buffer));
         events_buffer.clear();
       }
       bar.update();
     }
+    if (!events_buffer.empty()) {
+      events_out->append(std::move(events_buffer));
+      events_buffer.clear();
+    }
+    events_out->close(end_time);
 
-    std::cout << "Finished. Wrote " << total_events << " events to "
-              << opts.output_dir << "\n";
-    events_out.close();
+    std::cout << "Finished. Wrote " << events_out->event_count()
+              << " events to " << events_out->path() << "\n";
     return 0;
   } catch (const std::exception &ex) {
     std::cerr << "Error: " << ex.what() << "\n";

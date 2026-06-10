@@ -609,16 +609,16 @@ __global__ void batch_render_kernel(
     auto n0 = normals[tri.x];
     auto n1 = normals[tri.y];
     auto n2 = normals[tri.z];
-    auto v0 = vertices[tri.x];
-    auto v1 = vertices[tri.y];
-    auto v2 = vertices[tri.z];
+    // auto v0 = vertices[tri.x];
+    // auto v1 = vertices[tri.y];
+    // auto v2 = vertices[tri.z];
     auto a0 = albedos[tri.x];
     auto a1 = albedos[tri.y];
     auto a2 = albedos[tri.z];
     const float w = 1.0f - hit.u - hit.v;
     const float3 smooth_normal = normalize(n0 * w + n1 * hit.u + n2 * hit.v);
     const float albedo = a0 * w + a1 * hit.u + a2 * hit.v;
-    const float3 geometric_normal = normalize(cross(v1 - v0, v2 - v0));
+    // const float3 geometric_normal = normalize(cross(v1 - v0, v2 - v0));
     const float3 light_dir = normalize(light_direction);
     const float3 view_dir = normalize(-rays[idx]);
     // 如果法线背向光源，直接为 0

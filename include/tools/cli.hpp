@@ -11,6 +11,7 @@ public:
   std::string scene_dir, dem_path, albedo_path, traj_path;
   std::string output_dir = "./output";
   std::string config_path = "./config/default.yaml";
+  std::string event_format = "bin";
 
   static void print_usage(const char *prog) {
     std::cout
@@ -23,6 +24,9 @@ public:
            "(optional)\n"
         << "  --output <path>            output images file (default: ./)\n"
         << "  --config <path>            path to YAML config file "
+        << "(default: ./config/default.yaml)\n"
+        << "  --event_format <bin|hdf5>  event stream output format "
+        << "(default: bin)"
         << std::endl;
   }
 
@@ -46,18 +50,31 @@ public:
         return std::string(argv[++i]);
       };
 
-      if (arg == "--scene_dir") {
-        scene_dir = require_value("--scene_dir");
+      if (arg == "--scene_dir" || arg == "--scene-dir") {
+        scene_dir = require_value(arg.c_str());
       } else if (arg == "--dem") {
-        dem_path = require_value("--dem");
+        dem_path = require_value(arg.c_str());
       } else if (arg == "--albedo") {
-        albedo_path = require_value("--albedo");
+        albedo_path = require_value(arg.c_str());
       } else if (arg == "--traj") {
-        traj_path = require_value("--traj");
+        traj_path = require_value(arg.c_str());
       } else if (arg == "--output") {
-        output_dir = require_value("--output");
+        output_dir = require_value(arg.c_str());
       } else if (arg == "--config") {
-        config_path = require_value("--config");
+        config_path = require_value(arg.c_str());
+      } else if (arg == "--event_format" || arg == "--event-format" ||
+                 arg == "--events_format" || arg == "--events-format") {
+        event_format = require_value(arg.c_str());
+        if (event_format == "h5") {
+          event_format = "hdf5";
+        } else if (event_format == "binary") {
+          event_format = "bin";
+        }
+        if (event_format != "bin" && event_format != "hdf5") {
+          throw std::runtime_error(
+              "invalid event format for --event_format: " + event_format +
+              " (expected bin or hdf5)");
+        }
       } else if (arg == "--help" || arg == "-h") {
         print_usage(argv[0]);
         std::exit(0);

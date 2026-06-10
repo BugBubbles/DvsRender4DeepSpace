@@ -123,6 +123,10 @@ Notes:
   current implementation uses 24 floats as shown above.
 
 ## Event Stream Format
+The DVS executable writes `events.bin` by default. Use
+`--event_format hdf5` (or `--event-format h5`) to write `events.h5` in the
+same output directory instead.
+
 `events.bin` stores packed `dvs::Event` records (13 bytes each):
 
 ```
@@ -132,6 +136,20 @@ int16  y
 int8   polarity   # 1 for positive, 0 for negative
 float  depth
 ```
+
+`events.h5` stores root-level one-dimensional datasets:
+
+```
+x          int16 pixel x coordinate
+y          int16 pixel y coordinate
+t          int64 timestamp in microseconds
+p          int8  polarity, 1 for positive and 0 for negative
+ms_to_idx  int64 event index for each integer millisecond timestamp
+```
+
+`ms_to_idx[ms]` is the first event index whose timestamp is greater than or
+equal to `ms * 1000` microseconds. The final entries map to the total event
+count so `[ms0, ms1)` slices can use `ms_to_idx[ms0]:ms_to_idx[ms1]`.
 
 ## Image Conversion
 Camera rendering converts scene-linear intensity to 8-bit PNG using

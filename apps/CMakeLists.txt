@@ -9,6 +9,10 @@ function(add_main_executable TARGET_NAME SOURCE_FILE)
         dvs_core
         dvs_cuda
     )
+    if(TARGET_NAME STREQUAL "dvs")
+        target_include_directories(${TARGET_NAME} PRIVATE ${HDF5_INCLUDE_DIRS})
+        target_link_libraries(${TARGET_NAME} PRIVATE ${HDF5_LIBRARIES})
+    endif()
     # 可执行文件会自动输出到 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} (build/bin)
 endfunction()
 
