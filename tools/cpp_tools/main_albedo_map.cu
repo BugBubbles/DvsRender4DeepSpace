@@ -13,6 +13,7 @@
 #include <gdal_version.h>
 #include <iostream>
 #include <limits>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -93,107 +94,11 @@ struct CubBands {
   std::string projection_wkt;
 };
 
-__device__ float radians(float degrees) {
-  return degrees * (dvs::kPi / 180.0f);
-}
-__device__ void hapke_constant(const float inc_angle, const float emi_angle,
-                               const float phase_angle,
-                               const dvs::HapkeConfig &p, float &f, float &p_g,
-                               float &mu0, float &mue, float &K) {
-  const float cosi = cosf(radians(inc_angle));
-  const float cose = cosf(radians(emi_angle));
-  const float sini = sinf(radians(inc_angle));
-  const float sine = sinf(radians(emi_angle));
-  const float cosg = cosf(radians(phase_angle));
-  const float tan_g_div_2 = dvs::safe_tan(dvs::safe_acos(cosg) * 0.5f);
-  const float psi =
-      dvs::safe_acos((cosg - cosi * cose) / (sini * sine + 1e-6f));
-
-  p_g = dvs::HG_double_lobe(cosg, p.b, p.c);
-  const float BS = dvs::B_S(tan_g_div_2, p.hS);
-  const float BC = dvs::B_C(tan_g_div_2, p.hC);
-  K = dvs::porosity_K(p.phi);
-  const dvs::RoughnessTerms rst =
-      dvs::rough_S(cosi, cose, sini, sine, psi, p.thetap);
-  const float LS = rst.mu0 / (rst.mu0 + rst.mue + 1e-6f);
-  mu0 = rst.mu0;
-  mue = rst.mue;
-
-  f = (LS / cosi) * K * (1.0f + BC * p.B_C0) * rst.S / (4.0f * dvs::kPi);
-  p_g = (p_g * (1.0f + BS * p.B_S0));
-}
-
-__device__ float compute_albedo(const float albedo, const float f,
-                                const float p_g, const float mu0,
-                                const float mue, const float K) {
-  float M = dvs::Hfunc(mu0 / K, albedo) * dvs::Hfunc(mue / K, albedo) - 1.0f;
-  return f * (p_g + M) * albedo;
-}
-
-__device__ float grad_wr0(const float w) {
-  const float root = sqrtf(fmaxf(0.0f, 1.0f - w));
-  const float r0 = (1.0f - root) / (1.0f + root);
-  return r0 + (r0 + 1) * (r0 + 1) / 4.0f * w / root;
-}
-
-__device__ float grad_Hfunc(const float w, const float x, const float H) {
-  const float x_ln_1_plus_x_over_x = x * logf(1 + 1.0f / x);
-  float term1 = -x * grad_wr0(w);
-  float term2 = -0.5 * x_ln_1_plus_x_over_x;
-  float term3 = x * x_ln_1_plus_x_over_x * grad_wr0(w);
-  float inv_H = 1.0f / H;
-
-  return -(term1 + term2 + term3) * inv_H * inv_H;
-}
-
-__device__ float grad_M(const float w, const float mu0, const float mue,
-                        const float K) {
-  const float H_mu0 = dvs::Hfunc(mu0 / K, w);
-  const float H_mue = dvs::Hfunc(mue / K, w);
-  const float grad_H_mu0 = grad_Hfunc(w, mu0 / K, H_mu0);
-  const float grad_H_mue = grad_Hfunc(w, mue / K, H_mue);
-  return H_mue * grad_H_mu0 + H_mu0 * grad_H_mue;
-}
-
-__device__ float grad_residual(const float albedo, const float f,
-                               const float p_g, const float mu0,
-                               const float mue, const float K) {
-  const float M =
-      dvs::Hfunc(mu0 / K, albedo) * dvs::Hfunc(mue / K, albedo) - 1.0f;
-  const float grad_M_val = grad_M(albedo, mu0, mue, K);
-  return f * (p_g + M) + f * albedo * grad_M_val;
-}
-__global__ void batch_compute_albedo(const std::size_t pixel_count,
-                                     const float *inc_angles,
-                                     const float *emi_angles,
-                                     const float *phase_angles,
-                                     const float *i_over_f,
-                                     const dvs::HapkeConfig p, float *albedos) {
-  std::size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx >= pixel_count) {
-    return;
-  }
-  // 先计算固定不变的部分
-  float f, p_g, mu0, mue, K;
-  hapke_constant(inc_angles[idx], emi_angles[idx], phase_angles[idx], p, f, p_g,
-                 mu0, mue, K);
-  // 然后利用牛顿迭代法求解albedo
-  float albedo = 0.5f; // 初始猜测值
-  for (int iter = 0; iter < 5; ++iter) {
-    float computed_i_over_f = compute_albedo(albedo, f, p_g, mu0, mue, K);
-    float residual = computed_i_over_f - i_over_f[idx];
-    if (fabsf(residual) < 1e-6f) {
-      break; // 收敛}
-    }
-    float grad = grad_residual(albedo, f, p_g, mu0, mue, K);
-    if (fabsf(grad) < 1e-6f) {
-      break; // 避免除以零
-    }
-    albedo -= residual / grad; // 牛顿迭代更新
-    albedo =
-        fmaxf(0.0f, fminf(1.0f - 1e-5, albedo)); // 限制albedo在[0, 1]范围内
-  }
-  albedos[idx] = albedo;
+__global__ void batch_compute_albedo(std::size_t count,const float *inc,const float *emi,
+                                    const float *phase,const float *i_over_f,
+                                    dvs::HapkeConfig p,float *albedos) {
+  std::size_t idx=blockIdx.x*blockDim.x+threadIdx.x;
+  if(idx<count) albedos[idx]=dvs::invert_hapke_if(inc[idx],emi[idx],phase[idx],i_over_f[idx],p);
 }
 
 bool load_cub_file(const std::string &path, CubBands &out, std::string &err) {
@@ -296,6 +201,14 @@ bool load_cub_file(const std::string &path, CubBands &out, std::string &err) {
     if (status != CE_None) {
       err = "failed to read band " + std::to_string(band_index);
       return false;
+    }
+    int has_nodata=0,has_scale=0,has_offset=0;
+    float nodata=band->GetNoDataValue(&has_nodata);
+    double scale=band->GetScale(&has_scale),offset=band->GetOffset(&has_offset);
+    if(!has_scale) scale=1;if(!has_offset) offset=0;
+    for(auto &value:dst) {
+      if(!std::isfinite(value) || (has_nodata && value==nodata)) value=NAN;
+      else value=value*scale+offset;
     }
     return true;
   };
@@ -468,8 +381,9 @@ int main(int argc, char *argv[]) {
     }
 
     GDALRasterBand *out_band = out_ds->GetRasterBand(1);
-    out_band->SetDescription("Albedo");
-    out_band->SetNoDataValue(0);
+    out_band->SetDescription("Hapke single-scattering albedo w (I/F inversion)");
+    out_band->SetUnitType("1");
+    out_band->SetNoDataValue(NAN);
     CPLErr status = out_band->RasterIO(
         GF_Write, 0, 0, cub_bands.width, cub_bands.height, albedos.data(),
         cub_bands.width, cub_bands.height, GDT_Float32, 0, 0);

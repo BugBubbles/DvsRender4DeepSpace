@@ -9,7 +9,7 @@ bundle 目录必须包含以下文件：
 | `mesh_vertices.bin` | `float32` 二进制 | 顶点坐标，按 `Nx3` 存储，世界坐标系 |
 | `mesh_normals.bin` | `float32` 二进制 | 顶点法线，按 `Nx3` 存储，世界坐标系、单位向量 |
 | `mesh_indices.bin` | `uint32` 二进制 | 三角形索引，按 `Mx3` 存储 |
-| `frames.bin` | `float32` 二进制 | 每帧相机/光照参数，固定 stride=40 float |
+| `frames.bin` | `float32` 二进制 | 每帧相机/光照参数，固定 stride=24 float |
 
 可选（用于连续位姿轨迹）：
 
@@ -35,16 +35,15 @@ fps=30.0
 frame_count=250
 ```
 
-## 3. `frames.bin` 内存布局（每帧 40 个 float32）
+## 3. `frames.bin` 内存布局（每帧 24 个 float32）
 
 按顺序拼接：
 
-1. `timestamp`：1
+1. `timestamp`：1，单位秒；不会再次除以 FPS
 2. `camera_origin.xyz`：3
 3. `camera_world`（4x4，row-major）：16
-4. `inv_projection`（4x4，row-major）：16
-5. `light_dir.xyz`：3
-6. `light_intensity`：1
+4. `light_dir.xyz`：3
+5. `light_intensity`：1
 
 即每帧：
 
@@ -52,7 +51,6 @@ frame_count=250
 [t,
  ox, oy, oz,
  cam_world[16],
- inv_proj[16],
  lx, ly, lz,
  L]
 ```
@@ -84,11 +82,10 @@ channel,frame,value,hl_frame,hl_value,hr_frame,hr_value
 其中 `channel` 取值：
 `loc_x, loc_y, loc_z, quat_w, quat_x, quat_y, quat_z`。
 
-> C++ 侧连续位姿插值实现位于 `include/dvs/trajectory.hpp` 和 `src/trajectory.cpp`，当前未接入 `apps/simulator_main.cpp`。
+> 应用通过 `CameraTrajectory` 对导出的帧样本作连续插值；CSV 的原始控制柄尚未接入。二进制时间为秒，文本轨迹首列为帧索引。
 
-## 5. 导出内容与原 Python 逻辑对应关系
+## 5. 渲染与相机参数
 
-1. `render/scene.py` 中光线生成（NDC 反投影）→ `camera_world + inv_projection`。
-2. `scene.ray_cast / BVH` → 迁移为 C++ BVH 构建 + CUDA 批量求交。
-3. `render/hapke.py` 的 Hapke BRDF → 迁移为 `include/dvs/hapke.hpp`。
-4. `dvs/base.py` 的阈值触发逻辑 → 迁移为 `src/dvs_base.cpp`。
+相机射线来自配置文件内参，采用整数像素中心及图像 x 向右、y 向下的坐标；位姿沿用 Blender x 向右、y 向上、-Z 向前。导出的 `metadata.txt` 不覆盖用户配置。运行时显式选择 `config/davis346.yaml` 或 `config/prophesee.yaml`，所有应用保存来源及实际相机参数。
+
+图像与事件通道共用 `device_optics.cuh` 和 `hapke.hpp`。DVS 内核在轨迹区间内部追踪光线、采样电子数并积分像素电路。深度是命中射线距离的均值，空像素为 -1。此实现尚未包含镜头畸变及间接照明。

@@ -114,23 +114,6 @@ __global__ void batch_align_kernel(const float *ref_rst, const float *ref_lats,
                                    const float *src_lats, const float *src_lons,
                                    const int src_width, const int src_height,
                                    float *aligned_src_rst);
-__global__ void trianglize(const float3 *vertices, const float3 *normals,
-                           const int3 *indices, const int triangle_count,
-                           dvs::Triangle<float3> *triangles);
-
-/**
- * @brief
- * 从DEM数据中加载三角形、法向量以及必要的反照率信息，并可对当前三维坐标进行必要的刚体变换
- * @param dem_path DEM数据文件路径
- * @param albedo_path 反照率数据文件路径
- * @param h_tris 输出的三角形数组
- * @param h_albs 输出的反照率数组
- */
-__host__ bool load_from_raster(const std::string &dem_path,
-                               const std::string &albedo_path,
-                               std::vector<dvs::Triangle<float3>> &h_tris,
-                               std::vector<float> &h_albs);
-
 __host__ bool
 load_from_raster(const std::string &dem_path, const std::string &albedo_path,
                  std::vector<float3> &vertices, std::vector<float3> &normals,

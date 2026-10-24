@@ -11,46 +11,32 @@
 ### Scene Data
 - `scene_data.cpp` loads `mesh_vertices.bin`, `mesh_normals.bin`,
   `mesh_indices.bin`, and `frames.bin`.
-- Mesh data is converted into triangles; invalid indices are skipped.
+- Mesh data keeps indexed triangles; invalid indices are rejected before GPU upload.
 - Frames provide camera pose and light parameters per time step.
 
 ### BVH Build
 - `bvh/build.cpp` builds a binary BVH using SAH binning (`bvh/binning.cpp`).
 - Triangle order is rearranged to match BVH leaf ranges.
 
-### Ray Casting (GPU)
-- `raycast.cu` generates per-pixel ray directions.
-- `batch_intersect_kernel` traverses the BVH with a small stack.
-- `batch_render_kernel` computes intensity using Hapke BRDF.
+### Shared GPU Scene and Optics
+- `DeviceScene` owns indexed BVH/mesh/material buffers and releases partial allocations on failure.
+- `device_ray.hpp` contains nearest-hit and any-hit shadow traversal.
+- `device_optics.cuh::sample_pixel` supplies the same fixed stratified rays, normal/albedo interpolation, hard shadows, Hapke directional reflectance and cosine-fourth optical falloff to image and event paths.
+- Integer pixel centers and y-down image coordinates are converted to Blender y-up/-Z camera rays.
 
 ### Camera Rendering
-- `CamRayCaster` (in `cam_render.cu`) renders a frame + depth map.
-- Supersampling uses random offsets per pixel (`supersample_factor`).
-- `CamBlurRayCaster` accumulates multiple sub-frames over time for motion blur.
+- `CamRayCaster` in `cam_render.cu` overwrites per-pixel image and range buffers each call; missed rays have range -1.
+- Image radiance averages every spatial sample; depth averages only geometrically hit rays, including shadowed surfaces.
+- Image-only and image/depth APIs use one kernel. Motion blur is time-weighted midpoint exposure integration in `main_cam_blur.cpp`, including a final partial exposure.
 
 ### DVS Event Generation
-- `DvsRayCaster` (in `dvs_render.cu`) renders intensity and converts to events.
-- Base model in `dvs_base.cu`:
-  - log intensity thresholding
-  - positive and negative polarity events
-- Optional physics:
-  - threshold noise
-  - dark current
-  - refractory time
-  - high-pass filter (photoreceptor response)
-  - AER row delay
-
-Pseudocode (idealized):
-
-```text
-logI = log(I + dark_current)
-if logI - last_logI >= threshold_pos:
-  emit event(+)
-  last_logI = logI
-elif last_logI - logI >= threshold_neg:
-  emit event(-)
-  last_logI = logI
-```
+- `DvsRayCaster` uploads the BVH/mesh once and supplies scene pointers and trajectory horizons to `EventSensor`; pixel ray sampling is inside the fused circuit kernel.
+- `pixel_model.hpp` defines nonlinear subthreshold current-balance receptor, voltage thresholds, self-timed reset hold and capacitor leakage.
+- `event_sensor.cu` fuses time-local BVH/Hapke ray queries, electron charge sampling, circuit integration and nonlinear comparator roots on CUDA. It takes scene/trajectory intervals directly; no intensity image pair is consumed. Internal times are double precision.
+- `device_ray.hpp` shares intersection/shadow routines with image rendering; `device_optics.cuh` evaluates pose/light and rays within each integration cell.
+- `event_readout.cpp` serializes a bounded FIFO across scene steps, reports drops and flushes the final backlog.
+- `dvs_writer.hpp` preserves the 13-byte binary format or writes int64 microseconds in HDF5.
+- Detailed equations, literature and limitations are in [physical_sensor.md](physical_sensor.md).
 
 ### Trajectory
 - `trajectory.cpp` builds cubic Bezier curves (auto-clamped).
@@ -72,6 +58,6 @@ elif last_logI - logI >= threshold_neg:
 - `apps/main_gt_pose.cpp` outputs ground-truth motion and pose logs.
 
 ## Data Dependencies
-- `config/default.yaml` configures intrinsics, DVS physics, sampling rates, and
+- `config/davis346.yaml` or `config/prophesee.yaml` configures intrinsics, DVS physics, sampling rates, and
   Hapke BRDF parameters.
 - Blender export scripts in `tools/` produce the bundle inputs.

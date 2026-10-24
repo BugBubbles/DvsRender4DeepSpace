@@ -113,9 +113,11 @@ float CameraTrajectory::ScalarBezierCurve::end_time() const {
 
 float CameraTrajectory::ScalarBezierCurve::bezier(float p0, float p1, float p2,
                                                   float p3, float u) {
-  const float v = 1.0f - u;
-  return v * v * v * p0 + 3.0f * v * v * u * p1 + 3.0f * v * u * u * p2 +
-         u * u * u * p3;
+  // De Casteljau with difference-form interpolation preserves constant
+  // trajectories exactly; weighted powers can jitter static shadow edges.
+  const float a=p0+u*(p1-p0), b=p1+u*(p2-p1), c=p2+u*(p3-p2);
+  const float d=a+u*(b-a), e=b+u*(c-b);
+  return d+u*(e-d);
 }
 
 float CameraTrajectory::ScalarBezierCurve::bezier_derivative(float p0, float p1,
@@ -607,6 +609,8 @@ Vec3 CameraTrajectory::normalized_vector_derivative(const Vec3 &v_raw,
 void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
                              float fps, std::vector<float> &translation,
                              std::vector<float> &rotation) {
+  if(!std::isfinite(fps) || fps<=0 || translation.size()!=3 || rotation.size()!=3)
+    throw std::invalid_argument("trajectory requires positive fps and three-component mount transforms");
   // 获取相机中心到轨迹点的变换矩阵
   const Vec3 trans = Vec3(translation[0], translation[1], translation[2]);
   // 将欧拉角转换为旋转矩阵，沿用 ZYX 顺序，使用 Eigen 的旋转矩阵构造函数
@@ -652,24 +656,16 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
 
   bool timestamps_strict = true;
   for (std::size_t i = 0; i < n; ++i) {
-    times[i] = static_cast<float>(frames[i].frame_index) / fps_;
+    times[i] = static_cast<float>(frame_time(frames[i],fps_));
+    if(!std::isfinite(times[i])) throw std::invalid_argument("non-finite trajectory timestamp");
 
     if (i > 0 && !(times[i] > times[i - 1])) {
       timestamps_strict = false;
     }
   }
 
-  // 如果输入 timestamp 不严格递增，则根据 fps 重建时间轴。
-  if (!timestamps_strict) {
-    if (fps_ <= 0.0f) {
-      throw std::invalid_argument("CameraTrajectory::build: frame timestamps "
-                                  "are not strictly increasing and fps <= 0");
-    }
-
-    for (std::size_t i = 0; i < n; ++i) {
-      times[i] = static_cast<float>(i) / fps_;
-    }
-  }
+  if(!timestamps_strict)
+    throw std::invalid_argument("trajectory timestamps must be strictly increasing");
 
   Eigen::Quaternionf prev_q = Eigen::Quaternionf::Identity();
   bool has_prev_q = false;
@@ -680,14 +676,19 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
   for (std::size_t i = 0; i < n; ++i) {
     const auto &f = frames[i];
 
+    if(!f.camera_origin.allFinite() || !f.camera_world.allFinite() ||
+       !f.light_dir.allFinite() || f.light_dir.norm()<1e-12f ||
+       !std::isfinite(f.light_intensity) || f.light_intensity<0 ||
+       (f.camera_world.transpose()*f.camera_world-Mat3::Identity()).norm()>2e-3f || f.camera_world.determinant()<=0)
+      throw std::invalid_argument("trajectory requires finite rigid poses and valid world lighting");
     // Camera position.
-    cam_cnt = rot_mat * (f.camera_origin + trans);
+    cam_cnt = f.camera_origin + f.camera_world * trans;
     xs[i] = cam_cnt.x();
     ys[i] = cam_cnt.y();
     zs[i] = cam_cnt.z();
 
     // Camera orientation.
-    cam_world = rot_mat * f.camera_world;
+    cam_world = f.camera_world * rot_mat;
     q = matrix_to_quaternion_continuous(cam_world,
                                         has_prev_q ? &prev_q : nullptr);
 
@@ -699,7 +700,7 @@ void CameraTrajectory::build(const std::vector<FrameData<Vec3, Mat3>> &frames,
     rotations[i] = q;
 
     // Light direction.
-    Vec3 ld = rot_mat * f.light_dir;
+    Vec3 ld = f.light_dir;
     const float ld_norm = ld.norm();
 
     if (ld_norm > 1e-12f) {

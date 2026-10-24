@@ -2,6 +2,7 @@
 #include "dvs/scene_data.hpp"
 #include <charconv>
 #include <fstream>
+#include <iostream>
 
 namespace dvs {
 // 将 YAML 解析为两层字符串映射（内部实现）
@@ -209,20 +210,8 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(noise_map, "physic", "threshold_neg",
                         physic.threshold_neg, err, safe_stof))
     return;
-  if (!extract_required(noise_map, "physic", "threshold_noise",
-                        physic.threshold_noise, err, safe_stof))
-    return;
-  if (!extract_required(noise_map, "physic", "dark_current",
-                        physic.dark_current, err, safe_stof))
-    return;
   if (!extract_required(noise_map, "physic", "refractory_time",
                         physic.refractory_time, err, safe_stof))
-    return;
-  if (!extract_required(noise_map, "physic", "hpf_time_constant",
-                        physic.hpf_time_constant, err, safe_stof))
-    return;
-  if (!extract_required(noise_map, "physic", "shot_intensity",
-                        physic.shot_intensity, err, safe_stof))
     return;
   if (!extract_required(noise_map, "physic", "readout_latency",
                         physic.readout_latency, err, safe_stof))
@@ -230,6 +219,57 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(noise_map, "physic", "readout_bandwidth",
                         physic.readout_bandwidth, err, safe_stof))
     return;
+
+  for (const char *key : {"threshold_noise","dark_current","hpf_time_constant","shot_intensity",
+       "photoreceptor_tau","intensity_reference","min_bandwidth_fraction","leak_rate_hz",
+       "shot_noise_rate_hz","shot_noise_bright_factor"}) {
+    if(noise_map.count(key)) {err=std::string("removed physic key '")+key+"'; migrate to dimensioned parameters in docs/physical_sensor.md";return;}
+  }
+  auto optional_float = [&](const char *key, float &value) {
+    auto it = noise_map.find(key);
+    if (it != noise_map.end() && !safe_stof(it->second, value))
+      throw std::invalid_argument(std::string("invalid physic parameter: ") + key);
+  };
+  auto optional_int = [&](const char *key, int &value) {
+    auto it = noise_map.find(key);
+    if (it != noise_map.end() && !safe_stoi(it->second, value))
+      throw std::invalid_argument(std::string("invalid physic parameter: ") + key);
+  };
+  optional_float("threshold_std", physic.threshold_std);
+  optional_float("threshold_min", physic.threshold_min);
+  optional_float("wavelength_nm", physic.wavelength_nm);
+  optional_float("quantum_efficiency", physic.quantum_efficiency);
+  optional_float("pixel_pitch_um", physic.pixel_pitch_um);
+  optional_float("fill_factor", physic.fill_factor);
+  optional_float("f_number", physic.f_number);
+  optional_float("lens_transmission", physic.lens_transmission);
+  optional_float("radiance_scale", physic.radiance_scale);
+  optional_float("temperature_k", physic.temperature_k);
+  optional_float("subthreshold_kappa", physic.subthreshold_kappa);
+  optional_float("receptor_capacitance_f", physic.receptor_capacitance_f);
+  optional_float("reset_capacitance_f", physic.reset_capacitance_f);
+  optional_float("dark_current_a", physic.dark_current_a);
+  optional_float("reset_leakage_a", physic.reset_leakage_a);
+  optional_float("circuit_step", physic.circuit_step);
+  optional_int("photon_shot_noise", physic.photon_shot_noise);
+  optional_int("reset_thermal_noise", physic.reset_thermal_noise);
+  optional_int("random_seed", physic.random_seed);
+  optional_int("max_events_per_step", physic.max_events_per_step);
+  optional_int("readout_queue_capacity", physic.readout_queue_capacity);
+  for (float value : {physic.threshold_pos,physic.threshold_neg,physic.threshold_std,
+       physic.threshold_min,physic.refractory_time,physic.readout_bandwidth,physic.readout_latency,
+physic.wavelength_nm,physic.quantum_efficiency,physic.pixel_pitch_um,physic.fill_factor,physic.f_number,physic.lens_transmission,physic.radiance_scale,physic.temperature_k,physic.subthreshold_kappa,physic.receptor_capacitance_f,physic.reset_capacitance_f,physic.dark_current_a,physic.reset_leakage_a,physic.circuit_step}) {
+    if (!std::isfinite(value) || value<0) {err="physic values must be finite and nonnegative";return;}
+  }
+  if(physic.threshold_pos<=0 || physic.threshold_neg<=0 || physic.threshold_min<=0 ||
+     physic.wavelength_nm<=0 || physic.pixel_pitch_um<=0 || physic.f_number<=0 ||
+     physic.temperature_k<=0 || physic.subthreshold_kappa<=0 || physic.subthreshold_kappa>1 ||
+     physic.receptor_capacitance_f<=0 || physic.reset_capacitance_f<=0 || physic.circuit_step<=0 ||
+     physic.quantum_efficiency>1 || physic.fill_factor>1 || physic.lens_transmission>1 ||
+     physic.photon_shot_noise<0 || physic.photon_shot_noise>1 || physic.reset_thermal_noise<0 || physic.reset_thermal_noise>1 ||
+     physic.random_seed<0 || physic.max_events_per_step<1 || physic.max_events_per_step>64 || physic.readout_queue_capacity<1) {
+    err="invalid optical/circuit model parameter range";return;
+  }
 
   // 6. 填充 SceneConfig
   const auto &scene_map = kv["scene"];
@@ -253,12 +293,24 @@ Config::Config(const std::string &config_file, std::string &err) {
   if (!extract_required(scene_map, "scene", "blur_resolution",
                         scene.blur_resolution, err, safe_stof))
     return;
-  if (!extract_required(scene_map, "scene", "translation", scene.translation,
-                        err, safe_stof_list))
-    return;
-  if (!extract_required(scene_map, "scene", "rotation", scene.rotation, err,
-                        safe_stof_list))
-    return;
+  scene.translation = {0, 0, 0}; scene.rotation = {0, 0, 0};
+  for (auto pair : {std::make_pair("translation", &scene.translation), std::make_pair("rotation", &scene.rotation)}) {
+    auto it = scene_map.find(pair.first);
+    if (it != scene_map.end() && (!safe_stof_list(it->second, *pair.second) || pair.second->size() != 3)) {
+      err = std::string("scene.") + pair.first + " must have three numbers"; return;
+    }
+    for (float value : *pair.second) if (!std::isfinite(value)) { err = "nonfinite extrinsics"; return; }
+  }
+  for (float value : {camera.fx, camera.fy, camera.cx, camera.cy, scene.fps,
+                      scene.time_resolution, scene.cam_fps, scene.imu_fps, scene.blur_resolution})
+    if (!std::isfinite(value)) { err = "nonfinite camera or scene parameter"; return; }
+  if (camera.width <= 0 || camera.height <= 0 || camera.width > 32767 || camera.height > 32767 ||
+      camera.fx <= 0 || camera.fy <= 0 || scene.frame_count < 2 || scene.fps <= 0 ||
+      scene.time_resolution <= 0 || scene.cam_fps <= 0 || scene.imu_fps <= 0 ||
+      scene.blur_resolution <= 0 || scene.supersample_factor < 1) { err = "invalid scene or camera range"; return; }
+
+  double sample_count = static_cast<double>(camera.width) * camera.height * scene.supersample_factor * scene.supersample_factor;
+  if (sample_count > std::numeric_limits<int>::max()) { err = "too many aperture samples"; return; }
 
   const auto &hapke_map = kv["hapke"];
   if (!extract_required(hapke_map, "hapke", "b", hapke.b, err, safe_stof))
@@ -280,5 +332,15 @@ Config::Config(const std::string &config_file, std::string &err) {
     return;
   if (!extract_required(hapke_map, "hapke", "phi", hapke.phi, err, safe_stof))
     return;
+  for (float value : {hapke.b, hapke.c, hapke.hS, hapke.hC, hapke.thetap,
+                      hapke.w, hapke.B_S0, hapke.B_C0, hapke.phi})
+    if (!std::isfinite(value)) { err = "nonfinite Hapke parameter"; return; }
+  if (hapke.b < 0 || hapke.b >= 1 || hapke.c < -1 || hapke.c > 1 ||
+      hapke.hS < 0 || hapke.hC < 0 || hapke.thetap < 0 || hapke.thetap >= kPi/2 ||
+      hapke.w < 0 || hapke.w > 1 || hapke.B_S0 < 0 || hapke.B_C0 < 0 ||
+      hapke.phi < 0 || 1.209f * std::pow(hapke.phi, 2.0f/3.0f) >= 1) {
+    err = "invalid Hapke parameter range"; return;
+  }
+
 }
 } // namespace dvs

@@ -71,12 +71,14 @@ int main(int argc, char *argv[]) {
     if (!tools::loadImageryData(dem_path, dem))
       throw std::runtime_error("failed to load DEM data from: " + dem_path);
 
-    std::cout << "DEM dimensions: " << dem.width << "x" << dem.height
+    tools::reference_height(dem);
+  std::cout << "DEM dimensions: " << dem.width << "x" << dem.height
               << std::endl;
     if (!tools::loadImageryData(albedo_path, albedo))
       throw std::runtime_error("failed to load albedo data from: " +
                                albedo_path);
 
+    tools::require_same_projection(dem,albedo);
     std::cout << "Albedo dimensions: " << albedo.width << "x" << albedo.height
               << std::endl;
 
@@ -181,8 +183,6 @@ int main(int argc, char *argv[]) {
     // dvs::Triangle<float3> *d_tris;
     // cudaMalloc(&d_tris, h_triangle_count * sizeof(dvs::Triangle<float3>));
     // int tri_grid_size = (h_triangle_count + thread_count - 1) / thread_count;
-    // tools::trianglize<<<tri_grid_size, thread_count>>>(
-    //     d_vertices, d_normals, d_triangles, h_triangle_count, d_tris);
 
     // 将顶点、法线、albedo 从 GPU 复制回 CPU，并保存为输出文件
     std::vector<float3> h_vertices(h_vertice_count);

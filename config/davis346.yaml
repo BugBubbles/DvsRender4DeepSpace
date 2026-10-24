@@ -6,23 +6,41 @@ intrinsic:                 # 事件相机、普通相机、模糊相机和深度
   cx: 173.6471
   cy: 133.7327
 
-physic:                   # 这些参数都只对事件相机有效
-  threshold_pos: 0.55          # prophesee 数据参考值
-  threshold_neg: 0.41          # prophesee 数据参考值
-  threshold_noise: 0.02        # 各个像素阈值浮动百分比
-  dark_current: 10.0           # 暗电流强度，单位是光强度
-  refractory_time: 200e-6      # 不应期参数，取Davis346典型值
-  hpf_time_constant: 100e-6    # 高通滤波器时间常数，通常是一个较大的值
-  shot_intensity: 8000          # 散料噪声光子强度，即单位光强等于多少个光子数
-  readout_bandwidth: 5e6       # 行读写带宽，取Davis346典型值5000000，见于论文 10.1109/JSSC.2014.2342715 第7页
-  readout_latency: 18e-9       # 单个事件流处理延迟，取Davis346典型值18 ns，同上论文，其中说明事件流上限生成速率为55 MHz
+# Dimensioned generic circuit parameters; named profiles need calibration.
+physic:
+  threshold_pos: 0.28
+  threshold_neg: 0.28
+  threshold_std: 0.03             # frozen independent ON/OFF mismatch, log units
+  threshold_min: 0.01
+  refractory_time: 200e-6         # self-timed reset hold, s
+  wavelength_nm: 550             # effective monochromatic approximation
+  quantum_efficiency: 0.3
+  pixel_pitch_um: 15             # generic optical area, NOT device specification
+  fill_factor: 0.2
+  f_number: 2.0
+  lens_transmission: 0.8
+  radiance_scale: 0.001           # W m^-2 sr^-1 / renderer unit; calibrate
+  temperature_k: 300
+  subthreshold_kappa: 0.8
+  receptor_capacitance_f: 1e-15   # effective feedback capacitance, calibrate
+  reset_capacitance_f: 20e-15     # reset node capacitance, calibrate
+  dark_current_a: 1e-18          # mean dark photocurrent, A
+  reset_leakage_a: 0             # leakage of reference node, A
+  photon_shot_noise: 1           # charge-count noise before receptor, 0/1
+  reset_thermal_noise: 0         # optional kTC reset voltage, 0/1
+  circuit_step: 1e-6             # max optical/current integration cell, s
+  readout_bandwidth: 5e6         # generic FIFO events/s; 0 gives crossing times
+  readout_latency: 18e-9         # additive transport delay, s
+  readout_queue_capacity: 1000000
+  max_events_per_step: 16        # pixel capacity per host horizon; overflow errors
+  random_seed: 114514
 
 scene:
   frame_count: 201
   fps: 24.0              # 场景轨迹fps，对应当前仿真物理世界总时长 = frame_count / fps
   imu_fps: 200           # IMU输出fps 
   cam_fps: 30            # 相机输出fps
-  time_resolution: 1e-5  # 仅对事件相机有效，事件相机的时间分辨率
+  time_resolution: 1e-5  # 事件主机调度区间；像素在区间内部追踪光线并积分电路
   supersample_factor: 16 # 对应Blender的采样次数，共计超采样平方次
   blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
 

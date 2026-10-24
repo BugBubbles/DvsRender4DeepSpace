@@ -38,7 +38,6 @@ make -C build -j
 
 Optional feature flags:
 - `-DENABLE_PHYSIC_EFFECTS=ON|OFF`
-- `-DENABLE_HIGH_PASS_FILTER=ON|OFF`
 - `-DENABLE_AER_DELAY=ON|OFF`
 
 ## Build (System Packages)
@@ -75,7 +74,7 @@ Executables are generated from `apps/main_*.cpp` and written to `bin/`.
 
 ### Camera frames
 ```bash
-./bin/cam --scene_dir /path/to/bundle --output ./output --config ./config/default.yaml
+./bin/cam --scene_dir /path/to/bundle --output ./output --config ./config/davis346.yaml
 ```
 Outputs:
 - `output/images/*.png` (8-bit, grayscale)
@@ -83,21 +82,21 @@ Outputs:
 
 ### Motion blur camera frames
 ```bash
-./bin/cam_blur --scene_dir /path/to/bundle --output ./output --config ./config/default.yaml
+./bin/cam_blur --scene_dir /path/to/bundle --output ./output --config ./config/davis346.yaml
 ```
 Outputs:
 - `output/blur_images/*.png`
 
 ### DVS events
 ```bash
-./bin/dvs --scene_dir /path/to/bundle --output ./output --config ./config/default.yaml
+./bin/dvs --scene_dir /path/to/bundle --output ./output --config ./config/davis346.yaml
 ```
 Outputs:
 - `output/events.bin`
 
 ### Ground-truth pose and motion
 ```bash
-./bin/gt_pose --scene_dir /path/to/bundle --output ./output --config ./config/default.yaml
+./bin/gt_pose --scene_dir /path/to/bundle --output ./output --config ./config/davis346.yaml
 ```
 Outputs:
 - `output/gt_motion.txt`
@@ -118,16 +117,18 @@ The current C++ loader expects `frames.bin` to use a 24-float stride written by
 Notes:
 - The loader uses the 3x3 rotation from `cam_world`; projection is not read.
 - `metadata.txt` is written by the Blender script but is not consumed by the
-  C++ loader; camera intrinsics come from `config/default.yaml`.
-- The older `docs/blender_export_data.md` mentions a 40-float stride. The
-  current implementation uses 24 floats as shown above.
+  C++ loader; camera intrinsics come from `config/davis346.yaml`.
+- Binary frame timestamps are seconds; text trajectory timestamps are frame indices divided by scene FPS.
+- Pixel-center coordinates are integer-valued; intrinsics use x-right/y-down, and poses use Blender x-right/y-up/z-backward.
+- Every application saves `source_config.yaml` and `camera_used.yaml`. Default CLI camera is DAVIS346; select Prophesee explicitly with `config/prophesee.yaml`.
+
 
 ## Event Stream Format
 The DVS executable writes `events.bin` by default. Use
 `--event_format hdf5` (or `--event-format h5`) to write `events.h5` in the
 same output directory instead.
 
-`events.bin` stores packed `dvs::Event` records (13 bytes each):
+`events.bin` stores legacy packed records (13 bytes each); internal events use double timestamps:
 
 ```
 float  timestamp
@@ -154,25 +155,35 @@ count so `[ms0, ms1)` slices can use `ms_to_idx[ms0]:ms_to_idx[ms1]`.
 ## Image Conversion
 Camera rendering converts scene-linear intensity to 8-bit PNG using
 `render_float_to_png_bytes`:
-- `tone_map_aces(x) = clamp(x / 100, 0..1)`
+- `display_exposure(x) = clamp(x / 100, 0..1)`
 - linear to sRGB
 - optional dither
 - `to_byte` quantization
 
 ## Configuration File
-`config/default.yaml` defines:
+`config/davis346.yaml` defines:
 - `intrinsic`: width, height, fx, fy, cx, cy
-- `physic`: event thresholds, dark current, refractory time, HPF time constant,
-  shot noise, AER delay parameters
+- `physic`: event thresholds, dimensioned optical/circuit parameters, reset hold,
+  electron shot noise and readout queue parameters
 - `scene`: frame_count, fps, imu_fps, cam_fps, time_resolution,
   supersample_factor, blur_resolution
 - `hapke`: BRDF parameters
 
 ## Tips
 - If `events.bin` is empty, check thresholds and light intensity.
-- For stable DVS initialization, the first frame mean intensity is used.
+- DVS initializes each continuous pixel circuit from its own scene-ray photocurrent, including dark current.
 - If CUDA is not found, ensure `nvcc` is in PATH and `CUDAToolkit` can be
   located by CMake.
 
 ## Acknowledge
 We thank the contributors to this project and the open-source software [Blender](https://www.blender.org/), [Eigen](https://eigen.tuxfamily.org/), and [OpenCV](https://opencv.org/).
+
+## Physical event sensor
+
+The DVS path traces rays within trajectory intervals, converts Hapke radiance to photoelectron current, integrates nonlinear pixel circuits, and solves comparator crossing times in CUDA. It uses no image-pair differencing or ESIM/v2e runtime.
+
+See [physical_sensor.md](docs/physical_sensor.md) for the local-Zotero literature, model equations, parameter units, calibration limits, and CUDA regression tests. For subsequent experiments use the user-defined `config/davis346.yaml`, `config/prophesee.yaml`, or the selected dataset camera calibration, preserving its resolution and intrinsic parameters. `generic_physical.yaml` documents the reduced circuit defaults; earlier 64×48 runs are reduced-resolution regression checks, not matched-device experiments. Each run records its configuration and readout statistics.
+
+## CUDA 性能优化
+
+完整相机配置的优化模式、原生对照、数值检查和多 GPU 长序列运行见 [docs/optimization.md](docs/optimization.md)。HDF5 事件入口支持 `--solver adaptive-optics`；60 s 数据集使用 `tools/run_sequences.py --mode render-optimized`。保持原分辨率、内参、16×16 子光线和原电路步长，改变光学查询的时间组织方式。RTX 4090 本地构建需指定 `-DCMAKE_CUDA_ARCHITECTURES=89`。

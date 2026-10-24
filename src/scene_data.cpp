@@ -114,6 +114,19 @@ bool load_mesh_data(const std::filesystem::path &dir,
     return false;
   }
 
+  if(vertices_raw.empty() || indices_raw.empty() || vertices_raw.size()!=normals_raw.size()) {
+    if(err) *err="mesh requires nonempty vertices/triangles and matching normals";
+    return false;
+  }
+  for(auto index:indices_raw) if(index>=vertices_raw.size()/3) {
+    if(err) *err="mesh index outside vertex array";return false;
+  }
+  for(auto value:vertices_raw) if(!std::isfinite(value)) {
+    if(err) *err="nonfinite mesh vertex";return false;
+  }
+  for(auto value:normals_raw) if(!std::isfinite(value)) {
+    if(err) *err="nonfinite mesh normal";return false;
+  }
   out.vertices.resize(vertices_raw.size() / 3);
   out.normals.resize(normals_raw.size() / 3);
   out.indices.resize(indices_raw.size() / 3);
@@ -165,13 +178,13 @@ bool load_frames_from_binary(const std::filesystem::path &dir,
 
   const std::size_t frame_count = raw.size() / kFrameStrideFloats;
   out.resize(frame_count);
-  Mat4 camera_world;
 #pragma omp parallel for
   for (std::ptrdiff_t i = 0; i < static_cast<std::ptrdiff_t>(frame_count);
        ++i) {
     const std::size_t o = i * kFrameStrideFloats;
     FrameData<Vec3, Mat3> frame;
-    frame.frame_index = raw[o + 0];
+    frame.timestamp_seconds = raw[o + 0];
+    Mat4 camera_world;
     frame.camera_origin = Vec3(raw[o + 1], raw[o + 2], raw[o + 3]);
     for (int j = 0; j < 16; ++j) {
       camera_world(j / 4, j % 4) = raw[o + 4 + j];
@@ -182,48 +195,6 @@ bool load_frames_from_binary(const std::filesystem::path &dir,
     out[i] = frame;
   }
   return true;
-}
-
-void build_triangles_from_mesh(const MeshData<float3, uint3> &mesh,
-                               std::vector<Triangle<float3>> &out) {
-  std::vector<Triangle<float3>> tmp(mesh.indices.size());
-  std::vector<std::uint8_t> valid(mesh.indices.size(),
-                                  static_cast<std::uint8_t>(0));
-
-#pragma omp parallel for
-  for (std::ptrdiff_t i = 0;
-       i < static_cast<std::ptrdiff_t>(mesh.indices.size()); ++i) {
-    const uint3 tri = mesh.indices[static_cast<std::size_t>(i)];
-    if (tri.x >= mesh.vertices.size() || tri.y >= mesh.vertices.size() ||
-        tri.z >= mesh.vertices.size()) {
-      continue;
-    }
-    const float3 v0 = mesh.vertices[static_cast<std::size_t>(tri.x)];
-    const float3 v1 = mesh.vertices[static_cast<std::size_t>(tri.y)];
-    const float3 v2 = mesh.vertices[static_cast<std::size_t>(tri.z)];
-    const float3 face_n = normalize(cross(v1 - v0, v2 - v0));
-
-    const float3 n0 = (tri.x < mesh.normals.size())
-                          ? mesh.normals[static_cast<std::size_t>(tri.x)]
-                          : face_n;
-    const float3 n1 = (tri.y < mesh.normals.size())
-                          ? mesh.normals[static_cast<std::size_t>(tri.y)]
-                          : face_n;
-    const float3 n2 = (tri.z < mesh.normals.size())
-                          ? mesh.normals[static_cast<std::size_t>(tri.z)]
-                          : face_n;
-
-    tmp[static_cast<std::size_t>(i)] = Triangle<float3>{v0, v1, v2, n0, n1, n2};
-    valid[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(1);
-  }
-
-  out.reserve(mesh.indices.size());
-  for (std::size_t i = 0; i < tmp.size(); ++i) {
-    if (valid[i] == 0) {
-      continue;
-    }
-    out.push_back(tmp[i]);
-  }
 }
 
 bool load_scene_bundle(const std::filesystem::path &bundle_dir,

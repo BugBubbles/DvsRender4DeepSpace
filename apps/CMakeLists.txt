@@ -1,5 +1,7 @@
 # 设置可执行文件输出目录为 build/bin
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+endif()
 
 # 定义一个函数来简化添加测试可执行文件
 function(add_main_executable TARGET_NAME SOURCE_FILE)
@@ -8,8 +10,9 @@ function(add_main_executable TARGET_NAME SOURCE_FILE)
         PRIVATE
         dvs_core
         dvs_cuda
+        dvs_core
     )
-    if(TARGET_NAME STREQUAL "dvs")
+    if(TARGET_NAME STREQUAL "dvs" OR TARGET_NAME STREQUAL "sequence")
         target_include_directories(${TARGET_NAME} PRIVATE ${HDF5_INCLUDE_DIRS})
         target_link_libraries(${TARGET_NAME} PRIVATE ${HDF5_LIBRARIES})
     endif()

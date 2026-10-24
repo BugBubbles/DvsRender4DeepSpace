@@ -1,3 +1,4 @@
+#include "app_inputs.hpp"
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
@@ -35,34 +36,11 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (std::filesystem::exists(opts.dem_path) &&
-        std::filesystem::exists(opts.traj_path)) {
-      if (std::filesystem::exists(opts.albedo_path)) {
-        if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path,
-                                    opts.traj_path, scene, frames,
-                                    &error_message)) {
-          throw std::runtime_error("failed to load scene: " + error_message);
-          return 1;
-        }
-      } else {
-        if (!dvs::load_scene_bundle(opts.dem_path, opts.traj_path, scene,
-                                    frames, &error_message)) {
-          throw std::runtime_error("failed to load scene: " + error_message);
-          return 1;
-        }
-      }
-    } else {
-      if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
-                                  &error_message)) {
-        throw std::runtime_error("failed to load scene bundle: " +
-                                 error_message);
-        return 1;
-      }
-    }
+    dvs::load_app_inputs(opts,config,scene,frames);
 
     // 使用样条曲线获取连续位姿轨迹
     dvs::CameraTrajectory traj(frames, config.scene);
-    dvs::BVHBuildParams params; // 可使用默认参数
+    dvs::BVHBuildParams params;params.max_leaf_size=64; // full supplied terrain fits GPU memory
     int root_index = dvs::BVHBuilder::build(
         params, scene.bvh_nodes, scene.bvh_triangles, scene.vertices);
 
@@ -80,12 +58,12 @@ int main(int argc, char **argv) {
 
     size_t frame_count =
         std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
-    float end_time = static_cast<float>(frames[frame_count - 1].frame_index) /
-                     config.scene.fps;
+    if(frame_count==0) throw std::runtime_error("no trajectory frames selected");
+    float end_time = dvs::frame_time(frames[frame_count - 1], config.scene.fps);
     float start_time =
-        static_cast<float>(frames.front().frame_index) / config.scene.fps;
+        dvs::frame_time(frames.front(), config.scene.fps);
     std::size_t total_steps = static_cast<std::size_t>(
-        std::round((end_time - start_time) * config.scene.cam_fps));
+        std::ceil((double(end_time) - start_time) * config.scene.cam_fps));
 
     dvs::ProgressBar bar(total_steps, "Rendering frames");
     const float write_interval = 1.0f / config.scene.cam_fps;
@@ -119,7 +97,6 @@ int main(int argc, char **argv) {
                         light_frame_uint8.data());
       cv::Mat depth_img(config.camera.height, config.camera.width, CV_32F,
                         depth_frame.data());
-      cv::medianBlur(depth_img, depth_img, 3); // 3x3 中值滤波
       // 归一化图像到0-1范围
       cv::imwrite(image_name, img_uint8);
       cv::imwrite(depth_name, depth_img);

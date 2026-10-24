@@ -10,8 +10,9 @@ class Options {
 public:
   std::string scene_dir, dem_path, albedo_path, traj_path;
   std::string output_dir = "./output";
-  std::string config_path = "./config/default.yaml";
+  std::string config_path = "./config/davis346.yaml";
   std::string event_format = "bin";
+  std::string event_solver = "auto";
 
   static void print_usage(const char *prog) {
     std::cout
@@ -24,9 +25,10 @@ public:
            "(optional)\n"
         << "  --output <path>            output images file (default: ./)\n"
         << "  --config <path>            path to YAML config file "
-        << "(default: ./config/default.yaml)\n"
+        << "(default: ./config/davis346.yaml)\n"
         << "  --event_format <bin|hdf5>  event stream output format "
-        << "(default: bin)"
+        << "(default: bin)\n"
+        << "  --solver <auto|native|adaptive-optics>  auto selects adaptive optics for physical HDF5 output"
         << std::endl;
   }
 
@@ -75,6 +77,10 @@ public:
               "invalid event format for --event_format: " + event_format +
               " (expected bin or hdf5)");
         }
+      } else if (arg == "--solver") {
+        event_solver=require_value(arg.c_str());
+        if(event_solver!="auto" && event_solver!="native" && event_solver!="adaptive-optics")
+          throw std::runtime_error("solver must be auto, native, or adaptive-optics");
       } else if (arg == "--help" || arg == "-h") {
         print_usage(argv[0]);
         std::exit(0);
@@ -85,8 +91,7 @@ public:
 
     if (scene_dir.empty()) {
       if (dem_path.empty() || traj_path.empty()) {
-        throw std::runtime_error("either --scene_dir or all --dem, --albedo "
-                                 "and --traj are required");
+        throw std::runtime_error("either --scene_dir or --dem and --traj are required");
       }
     }
     std::ifstream config_in(config_path);

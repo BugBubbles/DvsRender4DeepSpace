@@ -29,10 +29,12 @@ inline __host__ __device__ float HG_double_lobe(float cosg, float b, float c) {
 }
 
 inline __host__ __device__ float B_S(float tan_g_div_2, float h_S) {
+  if (h_S <= 0.0f) return tan_g_div_2 <= 0.0f ? 1.0f : 0.0f;
   return 1.0f / (1.0f + tan_g_div_2 / h_S);
 }
 
 inline __host__ __device__ float B_C(float tan_g_div_2, float h_C) {
+  if (h_C <= 0.0f) return tan_g_div_2 <= 0.0f ? 1.0f : 0.0f;
   const float T = tan_g_div_2 / h_C;
   if (T < 1e-8f) {
     return 1.0f;
@@ -41,6 +43,7 @@ inline __host__ __device__ float B_C(float tan_g_div_2, float h_C) {
 }
 
 inline __host__ __device__ float Hfunc(float x, float w) {
+  if (x <= 1e-8f) return 1.0f;
   const float root = sqrtf(fmaxf(0.0f, 1.0f - w));
   const float r0 = (1.0f - root) / (1.0f + root);
   const float term = r0 + (1.0f - 2.0f * r0 * x) * 0.5f * logf(1.0f + 1.0f / x);
@@ -48,7 +51,8 @@ inline __host__ __device__ float Hfunc(float x, float w) {
 }
 
 inline __host__ __device__ float porosity_K(float phi) {
-  const float p = 1.209f * powf(phi, 0.667f);
+  if (phi <= 1e-8f) return 1.0f;
+  const float p = 1.209f * powf(phi, 2.0f / 3.0f);
   return -logf(1.0f - p) / p;
 }
 
@@ -82,6 +86,7 @@ inline __host__ __device__ float f_psi(float psi) {
 inline __host__ __device__ RoughnessTerms rough_S(float cosi, float cose,
                                                   float sini, float sine,
                                                   float psi, float thetap) {
+  if (thetap <= 1e-8f) return RoughnessTerms{cosi, cose, 1.0f};
   const float ch = chi(thetap);
   const float tan_thetap = tanf(thetap);
   const float sin_psi_half_sq = sinf(psi * 0.5f);
@@ -122,23 +127,11 @@ inline __host__ __device__ RoughnessTerms rough_S(float cosi, float cose,
 
   return out;
 }
-inline __host__ __device__ float
-hapke_brdf(const float3 &normal, const float3 &light_dir,
-           const float3 &view_dir, const float albedo, const HapkeConfig &p) {
-  const float3 n = normalize(normal);
-  const float3 l = normalize(light_dir);
-  const float3 v = normalize(view_dir);
-  float cosi = dot(n, l);
-  float cose = dot(n, v);
-  if (cosi <= 0.0f || cose <= 0.0f) {
-    return 0.0f;
-  }
-
-  cosi = fmaxf(cosi, 0.0f);
-  cose = fmaxf(cose, 0.0f);
-  const float sini = fmaxf(length(cross(n, l)), 1e-6f);
-  const float sine = fmaxf(length(cross(n, v)), 1e-6f);
-  const float cosg = clampf(dot(l, v), -1.0f, 1.0f);
+// BRDF times incident cosine, used for radiance with directional irradiance.
+inline __host__ __device__ float hapke_reflectance(float cosi,float cose,float cosg,float albedo,const HapkeConfig &p) {
+  if(cosi<=0 || cose<=0) return 0;
+  cosi=clampf(cosi,0,1);cose=clampf(cose,0,1);cosg=clampf(cosg,-1,1);
+  const float sini=sqrtf(fmaxf(0,1-cosi*cosi)),sine=sqrtf(fmaxf(0,1-cose*cose));
   const float tan_g_div_2 = safe_tan(safe_acos(cosg) * 0.5f);
   const float psi = safe_acos((cosg - cosi * cose) / (sini * sine + 1e-6f));
 
@@ -151,10 +144,31 @@ hapke_brdf(const float3 &normal, const float3 &light_dir,
       Hfunc(rst.mu0 / K, albedo) * Hfunc(rst.mue / K, albedo) - 1.0f;
   const float LS = rst.mu0 / (rst.mu0 + rst.mue + 1e-6f);
 
-  const float brdf = (albedo / (4.0f * kPi)) * (LS / cosi) * K *
+  const float reflectance = (albedo / (4.0f * kPi)) * LS * K *
                      (p_g * (1.0f + BS * p.B_S0) + M) * (1.0f + BC * p.B_C0) *
                      rst.S;
-  return brdf * cosi;
+  return reflectance;
+}
+
+inline __host__ __device__ float hapke_directional_reflectance(const float3 &normal,const float3 &light,
+                                           const float3 &view,float albedo,const HapkeConfig &p) {
+  float3 n=normalize(normal),l=normalize(light),v=normalize(view);
+  return hapke_reflectance(dot(n,l),dot(n,v),dot(l,v),albedo,p);
+}
+// I/F = pi * L / directional irradiance = pi * BRDF * cos(i).
+// Return NaN for invalid geometry, missing values, or targets outside [w=0,w=1].
+inline __host__ __device__ float invert_hapke_if(float inc,float emi,float phase,float target,const HapkeConfig &p) {
+  if(!(inc>=0 && inc<90 && emi>=0 && emi<90 && phase>=0 && phase<=180 && target>=0) || !isfinite(target)) return NAN;
+  if(phase>inc+emi+1e-4f || phase<fabsf(inc-emi)-1e-4f) return NAN;
+  float ci=cosf(inc*kPi/180),ce=cosf(emi*kPi/180),cg=cosf(phase*kPi/180);
+  float top=kPi*hapke_reflectance(ci,ce,cg,1,p);
+  if(!isfinite(top) || target>top) return NAN;
+  float lo=0,hi=1;
+  for(int k=0;k<32;++k) {
+    float w=(lo+hi)*.5f;
+    if(kPi*hapke_reflectance(ci,ce,cg,w,p)<target) lo=w;else hi=w;
+  }
+  return (lo+hi)*.5f;
 }
 
 } // namespace dvs

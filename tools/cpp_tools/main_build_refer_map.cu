@@ -5,6 +5,7 @@
 #include "tools/loader.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cpl_conv.h>
 #include <filesystem>
 #include <gdal_priv.h>
@@ -25,7 +26,7 @@ public:
         << "Options:\n"
         << "  --dem <path>               path to DEM file\n"
         << "  --dom <path>               path to DOM file\n"
-        << "(one of --dem or --dom is required)\n"
+        << "(both --dem and --dom are required)\n"
         << "  --window_size <size>       window size for processing (default: "
            "512)\n"
         << "  --output <path>            output directory (default: ./)\n"
@@ -48,7 +49,10 @@ public:
       } else if (arg == "--dom") {
         dom_path = require_value("--dom");
       } else if (arg == "--window_size") {
-        window_size = std::stoi(require_value("--window_size"));
+        auto value=require_value("--window_size");
+        auto parsed=std::from_chars(value.data(),value.data()+value.size(),window_size);
+        if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || window_size<=0)
+          throw std::runtime_error("window_size must be a positive integer");
       } else if (arg == "--output") {
         output_dir = require_value("--output");
       } else if (arg == "--config") {
@@ -61,8 +65,8 @@ public:
       }
     }
 
-    if (dem_path.empty() && dom_path.empty()) {
-      throw std::runtime_error("either --dem or --dom is required");
+    if (dem_path.empty() || dom_path.empty()) {
+      throw std::runtime_error("both --dem and --dom are required");
     }
     std::ifstream config_in(config_path);
     if (!config_in.good()) {
@@ -79,33 +83,11 @@ int main(int argc, char **argv) {
       return 1;
     }
     tools::BuildOptions opts(argc, argv);
-    double transform_dem[6], transform_dom[6];
-    OGRCoordinateTransformation *dem_to_geog = nullptr, *dom_to_geog = nullptr;
-    std::string error_message;
-    tools::Imagery dem, dom;
-    bool has_imagery = false;
-    if (std::filesystem::exists(opts.dom_path)) {
-      if (!tools::loadImageryData(opts.dom_path, dom, transform_dom,
-                                  dom_to_geog)) {
-        std::cerr << "Failed to load imagery data: " << error_message
-                  << std::endl;
-        return 1;
-      }
-      has_imagery = true;
-    }
-    if (std::filesystem::exists(opts.dem_path)) {
-      if (!tools::loadImageryData(opts.dem_path, dem, transform_dem,
-                                  dem_to_geog)) {
-        std::cerr << "Failed to load imagery data: " << error_message
-                  << std::endl;
-        return 1;
-      }
-      has_imagery = true;
-    }
-    if (!has_imagery) {
-      std::cerr << "No valid imagery data found." << std::endl;
-      return 1;
-    }
+    tools::Imagery dem,dom;
+    if(!tools::loadImageryData(opts.dem_path,dem) || !tools::loadImageryData(opts.dom_path,dom))
+      throw std::runtime_error("failed to load DEM/DOM");
+    tools::require_same_projection(dem,dom);
+    const double *transform_dem=dem.transform;
     // 如果同时加载了DEM和DOM，将 DOM 对齐至 DEM
     // 将 DEM 和 dom 数据上传到 GPU，执行对齐和法线计算的 CUDA 内核
     float *d_dem, *d_dom, *d_aligned_dom, *d_dem_xs, *d_dem_ys, *d_dom_xs,
@@ -145,6 +127,7 @@ int main(int argc, char **argv) {
         d_dem, d_dem_ys, d_dem_xs, dem.width, dem.height, d_dom, d_dom_ys,
         d_dom_xs, dom.width, dom.height, d_aligned_dom);
     // 将 GPU 上对齐后的 DOM 数据下载回 CPU，保存为 GeoTIFF 文件
+    dom.data.resize(dem_size);
     cudaMemcpy(dom.data.data(), d_aligned_dom, dem_size * sizeof(float),
                cudaMemcpyDeviceToHost);
     dom.width = dem.width;
@@ -184,9 +167,9 @@ int main(int argc, char **argv) {
     labels_file << "dem_image_path dom_image_path world_x reso_x row_rot "
                    "world_y reso_y col_rot offset_z"
                 << std::endl;
-    float offset_x = dem.y_coords[dem.height / 2];
-    float offset_y = dem.x_coords[dem.width / 2];
-    float offset_z = dem.data[dem.width * (dem.height / 2) + dem.width / 2];
+    float offset_x = dem.x_coords[dem.width / 2];
+    float offset_y = dem.y_coords[dem.height / 2];
+    float offset_z = tools::reference_height(dem);
     // 在世界空间中，整个DEM已经被整体平移了(-offset_x, -offset_y,
     // -offset_z)，因此中心点的坐标应该是(0, 0, 0)
     std::cout << "DEM center x: " << offset_x << ", y: " << offset_y
@@ -231,8 +214,6 @@ int main(int argc, char **argv) {
       }
     }
     labels_file.close();
-    OCTDestroyCoordinateTransformation(dem_to_geog);
-    OCTDestroyCoordinateTransformation(dom_to_geog);
     std::cout << "Processing completed successfully." << std::endl;
     return 0;
   } catch (const std::exception &e) {

@@ -1,0 +1,62 @@
+intrinsic:                 # 事件相机、普通相机、模糊相机和深度相机共享
+  width: 512
+  height: 512
+  fx: 355.55555555555554
+  fy: 355.55555555555554
+  cx: 256.0
+  cy: 256.0
+
+# Dimensioned generic circuit parameters; named profiles need calibration.
+physic:
+  threshold_pos: 0.3
+  threshold_neg: 0.3
+  threshold_std: 0.03             # frozen independent ON/OFF mismatch, log units
+  threshold_min: 0.01
+  refractory_time: 200e-6         # self-timed reset hold, s
+  wavelength_nm: 550             # effective monochromatic approximation
+  quantum_efficiency: 0.3
+  pixel_pitch_um: 15             # generic optical area, NOT device specification
+  fill_factor: 0.2
+  f_number: 2.0
+  lens_transmission: 0.8
+  radiance_scale: 0.001           # W m^-2 sr^-1 / renderer unit; calibrate
+  temperature_k: 300
+  subthreshold_kappa: 0.8
+  receptor_capacitance_f: 1e-15   # effective feedback capacitance, calibrate
+  reset_capacitance_f: 20e-15     # reset node capacitance, calibrate
+  dark_current_a: 1e-18          # mean dark photocurrent, A
+  reset_leakage_a: 0             # leakage of reference node, A
+  photon_shot_noise: 1           # charge-count noise before receptor, 0/1
+  reset_thermal_noise: 0         # optional kTC reset voltage, 0/1
+  circuit_step: 1e-6             # max optical/current integration cell, s
+  readout_bandwidth: 5e6         # generic FIFO events/s; 0 gives crossing times
+  readout_latency: 18e-9         # additive transport delay, s
+  readout_queue_capacity: 1000000
+  max_events_per_step: 16        # pixel capacity per host horizon; overflow errors
+  random_seed: 114514
+
+scene:
+  frame_count: 201
+  fps: 24.0              # 场景轨迹fps，对应当前仿真物理世界总时长 = frame_count / fps
+  imu_fps: 200           # IMU输出fps 
+  cam_fps: 30            # 相机输出fps
+  time_resolution: 1e-5  # 事件主机调度区间；像素在区间内部追踪光线并积分电路
+  supersample_factor: 4 # 对应Blender的采样次数，共计超采样平方次
+  blur_resolution: 1e-3  # 仅对模糊相机有效，模糊曝光的时间分辨率
+  # # 用于左目
+  # translation: [0, 0, 0] # 相机光心与轨迹中心的平移矢量
+  # rotation: [0, 0, 0]   # 相机姿态与轨迹姿态的三轴欧拉角, ZYX 顺序
+  # 用于右目
+  translation: [0, 0, 0] # 相机光心与轨迹中心的平移矢量
+  rotation: [0, 0, 0]   # 相机姿态与轨迹姿态的三轴欧拉角, ZYX 顺序
+
+hapke:                   # Hapke模型参数，非必要不修改
+  b: 0.24
+  c: 0.305
+  hS: 0.08
+  hC: 1.0
+  thetap: 0.453786 # 26.0 * kPi / 180.0
+  w: 0.324
+  B_S0: 2.42
+  B_C0: 0.0
+  phi: 0.3

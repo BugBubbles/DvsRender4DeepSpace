@@ -1,4 +1,6 @@
+#pragma once
 #include "dvs/dvs_base.hpp"
+#include "dvs/dataset_budget.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -23,9 +25,11 @@ protected:
 
 class BinaryEventStreamWriter final : public EventStreamWriter {
 public:
-  explicit BinaryEventStreamWriter(std::string output_path)
-      : output_path_(std::move(output_path)),
-        out_(output_path_, std::ios::binary) {
+  explicit BinaryEventStreamWriter(std::string output_path,const DatasetBudget *budget=nullptr)
+      : output_path_(std::move(output_path)),budget_(budget) {
+    if(budget_)budget_->require_path(output_path_);
+    auto open=[&]{out_.open(output_path_,std::ios::binary);};
+    if(budget_)budget_->write(0,open);else open();
     if (!out_) {
       throw std::runtime_error("failed to open output file: " + output_path_);
     }
@@ -35,8 +39,19 @@ public:
     if (events.empty()) {
       return;
     }
-    out_.write(reinterpret_cast<const char *>(events.data()),
-               static_cast<std::streamsize>(events.size() * sizeof(Event)));
+    // Preserve the public legacy 13-byte format while keeping double precision
+    // throughout pixel generation and HDF5 export.
+#pragma pack(push, 1)
+    struct BinaryRecord { float t; int16_t x, y; int8_t p; float depth; };
+#pragma pack(pop)
+    static_assert(sizeof(BinaryRecord) == 13, "legacy event record size");
+    std::vector<BinaryRecord> records;
+    records.reserve(events.size());
+    for (const auto &e : events) records.push_back({static_cast<float>(e.timestamp), e.x, e.y, e.polarity, e.depth});
+    auto write=[&]{out_.write(reinterpret_cast<const char *>(records.data()),
+               static_cast<std::streamsize>(records.size() * sizeof(BinaryRecord)));
+    out_.flush();};
+    if(budget_)budget_->write(records.size()*sizeof(BinaryRecord),write);else write();
     if (!out_) {
       throw std::runtime_error("failed to write output file: " + output_path_);
     }
@@ -48,13 +63,16 @@ public:
 
 private:
   std::string output_path_;
+  const DatasetBudget *budget_=nullptr;
   std::ofstream out_;
 };
 
 class Hdf5EventStreamWriter final : public EventStreamWriter {
 public:
-  explicit Hdf5EventStreamWriter(std::string output_path)
-      : output_path_(std::move(output_path)) {
+  explicit Hdf5EventStreamWriter(std::string output_path,const DatasetBudget *budget=nullptr)
+      : output_path_(std::move(output_path)),budget_(budget) {
+    if(budget_)budget_->require_path(output_path_);
+    auto create=[&]{
     file_ = H5Fcreate(output_path_.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
                       H5P_DEFAULT);
     check(file_, "failed to create HDF5 file: " + output_path_);
@@ -62,6 +80,9 @@ public:
     y_dataset_ = create_extendable_dataset("y", H5T_NATIVE_INT16);
     t_dataset_ = create_extendable_dataset("t", H5T_NATIVE_INT64);
     p_dataset_ = create_extendable_dataset("p", H5T_NATIVE_INT8);
+    check(H5Fflush(file_,H5F_SCOPE_GLOBAL),"failed to flush new event file");
+    };
+    if(budget_)budget_->write(4*1024*1024,create);else create();
   }
 
   ~Hdf5EventStreamWriter() override {
@@ -76,14 +97,20 @@ public:
   }
 
   void append(std::vector<Event> events) override {
+    if(closed_)throw std::runtime_error("cannot append to closed HDF5 event file");
     if (events.empty()) {
       return;
     }
+    for(const auto&e:events)if(!std::isfinite(e.timestamp) || e.timestamp<0 ||
+        e.timestamp*1000>std::numeric_limits<int>::max()-1)
+      throw std::runtime_error("HDF5 event timestamp is outside millisecond-index bounds");
     std::stable_sort(events.begin(), events.end(),
                      [](const Event &lhs, const Event &rhs) {
                        return lhs.timestamp < rhs.timestamp;
                      });
 
+    if (events.front().timestamp < last_timestamp_)
+      throw std::runtime_error("HDF5 events must be globally time ordered");
     std::vector<int16_t> xs(events.size());
     std::vector<int16_t> ys(events.size());
     std::vector<int64_t> ts(events.size());
@@ -91,16 +118,22 @@ public:
     for (std::size_t i = 0; i < events.size(); ++i) {
       xs[i] = events[i].x;
       ys[i] = events[i].y;
-      ts[i] = std::llround(events[i].timestamp * 1e9);
+      ts[i] = std::llround(static_cast<double>(events[i].timestamp) * 1e6);
       ps[i] = events[i].polarity;
-
-      fill_ms_to_idx(ts[i] / 1000000, event_count_ + i);
     }
 
+    auto write=[&]{
     append_dataset(x_dataset_, xs.data(), H5T_NATIVE_INT16, xs.size());
     append_dataset(y_dataset_, ys.data(), H5T_NATIVE_INT16, ys.size());
     append_dataset(t_dataset_, ts.data(), H5T_NATIVE_INT64, ts.size());
     append_dataset(p_dataset_, ps.data(), H5T_NATIVE_INT8, ps.size());
+    if(budget_)check(H5Fflush(file_,H5F_SCOPE_GLOBAL),"failed to flush event batch");
+    };
+    // Allow full chunk allocation in all four columns, plus B-tree metadata.
+    uint64_t reservation=((events.size()+chunk_size_-1)/chunk_size_+1)*chunk_size_*13+4*1024*1024;
+    if(budget_)budget_->write(reservation,write);else write();
+    for(std::size_t i=0;i<events.size();++i)fill_ms_to_idx(ts[i]/1000,event_count_+i);
+    last_timestamp_=events.back().timestamp;
     event_count_ += events.size();
   }
 
@@ -109,11 +142,18 @@ public:
       return;
     }
 
-    if (end_ts_s >= 0) {
-      fill_ms_to_idx(std::llround(end_ts_s * 1000), event_count_);
-    }
+    if(!std::isfinite(end_ts_s) || end_ts_s*1000>std::numeric_limits<int>::max()-1)
+      throw std::runtime_error("invalid HDF5 observation end time");
+    auto end_ms=end_ts_s<0?-1:std::llround(end_ts_s*1000);
+    uint64_t index_count=std::max(uint64_t(ms_to_idx_.size()),uint64_t(end_ms+1));
+    auto finish=[&]{
+    if(end_ms>=0)fill_ms_to_idx(end_ms,event_count_);
     write_ms_to_idx_dataset();
-    H5Fflush(file_, H5F_SCOPE_GLOBAL);
+    check(H5Fflush(file_, H5F_SCOPE_GLOBAL),"failed to flush final event index");
+    close_dataset(x_dataset_);close_dataset(y_dataset_);close_dataset(t_dataset_);close_dataset(p_dataset_);
+    check(H5Fclose(file_),"failed to close event file");file_=-1;
+    };
+    if(budget_)budget_->write(index_count*sizeof(int64_t)+4*1024*1024,finish);else finish();
     closed_ = true;
   }
 
@@ -209,8 +249,9 @@ private:
     }
   }
 
-  static constexpr hsize_t chunk_size_ = 1 << 20;
+  static constexpr hsize_t chunk_size_ = 1 << 16;
   std::string output_path_;
+  const DatasetBudget *budget_=nullptr;
   hid_t file_ = -1;
   hid_t x_dataset_ = -1;
   hid_t y_dataset_ = -1;
@@ -218,6 +259,7 @@ private:
   hid_t p_dataset_ = -1;
   std::vector<int64_t> ms_to_idx_;
   int64_t last_ms_ = -1;
+  double last_timestamp_ = -std::numeric_limits<double>::infinity();
   bool closed_ = false;
 };
 } // namespace dvs

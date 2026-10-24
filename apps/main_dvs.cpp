@@ -1,7 +1,11 @@
+#include "app_inputs.hpp"
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
+#include <fstream>
+#include <iomanip>
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -47,33 +51,17 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (std::filesystem::exists(opts.dem_path) &&
-        std::filesystem::exists(opts.traj_path)) {
-      if (std::filesystem::exists(opts.albedo_path)) {
-        if (!dvs::load_scene_bundle(opts.dem_path, opts.albedo_path,
-                                    opts.traj_path, scene, frames,
-                                    &error_message)) {
-          throw std::runtime_error("failed to load scene: " + error_message);
-          return 1;
-        }
-      } else {
-        if (!dvs::load_scene_bundle(opts.dem_path, opts.traj_path, scene,
-                                    frames, &error_message)) {
-          throw std::runtime_error("failed to load scene: " + error_message);
-          return 1;
-        }
-      }
-    } else {
-      if (!dvs::load_scene_bundle(opts.scene_dir, scene, frames,
-                                  &error_message)) {
-        throw std::runtime_error("failed to load scene bundle: " +
-                                 error_message);
-        return 1;
-      }
-    }
+    bool adaptive=opts.event_solver=="adaptive-optics" || (opts.event_solver=="auto" && opts.event_format=="hdf5" && config.physic.refractory_time>0);
+#ifndef ENABLE_PHYSIC_EFFECTS
+    if(opts.event_solver=="adaptive-optics")throw std::runtime_error("adaptive optics requires enabled physical reset effects");
+    adaptive=false;
+#endif
+    if(adaptive && opts.event_format!="hdf5")throw std::runtime_error("adaptive optics exports HDF5 x/y/t/p; per-event auxiliary binary depth requires --solver native");
+    dvs::load_app_inputs(opts,config,scene,frames);
+
     // 使用样条曲线获取连续位姿轨迹
     dvs::CameraTrajectory traj(frames, config.scene);
-    dvs::BVHBuildParams params; // 可使用默认参数
+    dvs::BVHBuildParams params;params.max_leaf_size=64; // full supplied terrain fits GPU memory
     int root_index = dvs::BVHBuilder::build(
         params, scene.bvh_nodes, scene.bvh_triangles, scene.vertices);
 
@@ -87,73 +75,92 @@ int main(int argc, char **argv) {
 
     size_t frame_count =
         std::min(frames.size(), static_cast<size_t>(config.scene.frame_count));
-    float end_time = static_cast<float>(frames[frame_count - 1].frame_index) /
-                     config.scene.fps;
+    if(frame_count==0) throw std::runtime_error("no trajectory frames selected");
+    float end_time = dvs::frame_time(frames[frame_count - 1], config.scene.fps);
     float start_time =
-        static_cast<float>(frames.front().frame_index) / config.scene.fps;
+        dvs::frame_time(frames.front(), config.scene.fps);
     std::size_t total_steps = static_cast<std::size_t>(
-        std::round((end_time - start_time) / config.scene.time_resolution));
+        std::ceil((static_cast<double>(end_time) - static_cast<double>(start_time)) /
+                  static_cast<double>(config.scene.time_resolution)));
 
     dvs::ProgressBar bar(total_steps, "Generating events");
     std::vector<dvs::Event> events, events_buffer; // 用于存储当前时间步的事件
                                                    //
-    float next_write_time = start_time;
+    double next_write_time = start_time;
     const float write_interval = 1.0f / config.scene.imu_fps;
 
-    // 渲染第一帧以获取平均光强度，以初始化事件图
-    const dvs::CameraTrajectoryState &state = traj.evaluate(start_time);
-    float3 camera_origin = dvs::vec3_to_float3(state.position);
-    const float *camera_world = state.orientation.data();
-    float3 light_dir = dvs::vec3_to_float3(state.light_direction);
-    float3 linear_velocity = dvs::vec3_to_float3(state.linear_velocity);
-    float3 angular_velocity = dvs::vec3_to_float3(state.angular_velocity);
-    float light_intensity = state.light_intensity;
-    std::vector<float> light_frame(config.camera.width * config.camera.height);
-    raycaster.render_main(camera_origin, camera_world, light_dir,
-                          light_intensity, light_frame);
-    float mean_light = 0.0f;
-    int valid_pixel_count = 0;
-    for (float &v : light_frame) {
-      if (v > 0.0f) {
-        mean_light += v;
-        valid_pixel_count++;
+    auto previous_state=traj.evaluate(start_time);
+    raycaster.initialize(previous_state,start_time);
+    std::cout << "Initialized continuous photocurrent/circuit state from scene rays.\n";
+    double previous_time=start_time;
+    unsigned batch=adaptive?200:64;
+    if(config.physic.refractory_time<=0)batch=1;
+    else batch=std::max(1U,std::min(batch,unsigned(std::max(1.0,(config.physic.max_events_per_step-2)*double(config.physic.refractory_time)/config.scene.time_resolution))));
+    double next_check=start_time;size_t step=0;
+    std::vector<dvs::OpticalInterval> intervals;intervals.reserve(batch);
+    while(step<total_steps){
+      size_t first_step=step;double first_time=previous_time;auto first_state=previous_state;intervals.clear();
+      for(unsigned j=0;j<batch && step<total_steps;++j){
+        double time=std::min(double(end_time),double(start_time)+(++step)*double(config.scene.time_resolution));
+        if(time<=previous_time)break;auto current=traj.evaluate(time);
+        intervals.push_back({dvs::to_optical_state(previous_state),dvs::to_optical_state(current),previous_time,time});
+        previous_state=current;previous_time=time;
       }
-    }
-    mean_light /= valid_pixel_count;
-    raycaster.initialize(mean_light);
-    std::cout << "Initialized event generation with mean light intensity: "
-              << mean_light << "\n";
-
-    for (size_t step = 0; step < total_steps; ++step) {
-      float current_time = start_time + step * config.scene.time_resolution;
-      const dvs::CameraTrajectoryState &state = traj.evaluate(current_time);
-      camera_origin = dvs::vec3_to_float3(state.position);
-      camera_world = state.orientation.data();
-      light_dir = dvs::vec3_to_float3(state.light_direction);
-      light_intensity = state.light_intensity;
-
-      raycaster.render_main(camera_origin, camera_world, light_dir,
-                            light_intensity, current_time, events);
-
-      // const std::vector<dvs::Event> events =
-      // dvs_sensor.process_frame(current_time, light_frame);
-      // 将events中的事件移动到events_buffer中，清空events以便下一次使用
-      std::move(events.begin(), events.end(),
-                std::back_inserter(events_buffer));
-      events.clear();
-      // 输出当前时间和相机速度作为轨迹信息，精度为9位小数，以imu_fps频率输出
-      if (current_time >= next_write_time) {
-        next_write_time += write_interval;
-        events_out->append(std::move(events_buffer));
-        events_buffer.clear();
-      }
-      bar.update();
+      if(intervals.empty())break;
+      if(adaptive){bool check=first_time>=next_check;
+        if(!raycaster.advance_adaptive(intervals,dvs::kDefaultOpticalLogTolerance,events,check)){
+          if(batch>1){batch=std::max(1U,batch/2);step=first_step;previous_time=first_time;previous_state=first_state;continue;}
+          raycaster.advance_many(intervals,events);
+        }
+        if(check)next_check=previous_time+.25;
+      }else raycaster.advance_many(intervals,events);
+      std::move(events.begin(),events.end(),std::back_inserter(events_buffer));events.clear();
+      if(previous_time>=next_write_time){next_write_time=previous_time+write_interval;events_out->append(std::move(events_buffer));events_buffer.clear();}
+      for(size_t j=first_step;j<step;++j)bar.update();
     }
     if (!events_buffer.empty()) {
       events_out->append(std::move(events_buffer));
       events_buffer.clear();
     }
-    events_out->close(end_time);
+    // Finish the last interval and flush the transport backlog without losing events.
+    raycaster.drain(events);
+    double output_end = events.empty() ? end_time : std::max(static_cast<double>(end_time), static_cast<double>(events.back().timestamp));
+    events_out->append(std::move(events));
+    events_out->close(output_end);
+    std::ifstream source_config(opts.config_path);
+    std::ofstream copied_config(opts.output_dir + "/sensor_config.yaml");
+    copied_config << source_config.rdbuf();
+    std::ofstream model_metadata(opts.output_dir + "/sensor_model.txt");
+    model_metadata << std::setprecision(12)<<"model=ray_photocurrent_circuit_v2\n"
+                   << "timestamp="<<(opts.event_format=="hdf5"?"int64_microseconds_transport_completion":"float32_seconds_transport_completion")<<"\n"
+                   << "config=" << opts.config_path << "\n"
+                   << "random_seed=" << config.physic.random_seed << "\n"
+                   << "dropped_readout_events=" << raycaster.dropped_events() << "\n"
+                   << "peak_readout_queue=" << raycaster.peak_queue() << "\n";
+#ifdef ENABLE_PHYSIC_EFFECTS
+    model_metadata << "physical_effects=on\n";
+#else
+    model_metadata << "physical_effects=off\n";
+#endif
+    model_metadata << "photoreceptor=nonlinear_current_balance\n"
+                   << "optical_sampling="<<(adaptive?"adaptive_direct_ray_nodes_with_native_cell_fallback":"midpoint_rays_within_circuit_cells")<<"\n"
+                   << "optical_log_tolerance="<<(adaptive?dvs::kDefaultOpticalLogTolerance:0)<<"\n"
+                   << "leaf_voltage_error_threshold_fraction="<<(adaptive?dvs::kOpticalVoltageThresholdFraction:0)<<"\n"
+                   << "optical_cache_capacity="<<(adaptive?raycaster.adaptive_cache_capacity():0)<<"\n"
+                   << "camera_width="<<config.camera.width<<"\ncamera_height="<<config.camera.height<<"\n"
+                   << "fx="<<config.camera.fx<<"\nfy="<<config.camera.fy<<"\ncx="<<config.camera.cx<<"\ncy="<<config.camera.cy<<"\n"
+                   << "spatial_grid="<<config.scene.supersample_factor<<"\n"
+                   << "distortion=ideal_pinhole_not_hardware_calibration\n"
+                   << "physics_calibration=generic_uncalibrated\n"
+                   << "photon_noise=charge_count_tau_leap\n"
+                   << "circuit_step_seconds=" << config.physic.circuit_step << "\n"
+                   << "radiance_scale=" << config.physic.radiance_scale << "\n";
+#ifdef ENABLE_AER_DELAY
+    model_metadata << "readout_queue=on\n";
+#else
+    model_metadata << "readout_queue=off\n";
+#endif
+    std::cout << "Readout dropped " << raycaster.dropped_events() << " events; peak queue " << raycaster.peak_queue() << "\n";
 
     std::cout << "Finished. Wrote " << events_out->event_count()
               << " events to " << events_out->path() << "\n";

@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 
 import bpy
 import mathutils
@@ -26,7 +27,7 @@ def collect_mesh_data(scene, depsgraph):
             continue
 
         mesh.calc_loop_triangles()
-        normal_matrix = eval_obj.matrix_world.to_3x3()
+        normal_matrix = eval_obj.matrix_world.to_3x3().inverted().transposed()
 
         for tri in mesh.loop_triangles:
             base = len(vertices)
@@ -91,15 +92,19 @@ def collect_frames(scene, depsgraph, camera, light, start_frame, end_frame):
 def write_metadata(scene, camera, path, width, height, fps, frame_count):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     cam_eval = camera.evaluated_get(depsgraph)
-    # 获取相机内参数矩阵
-    focal_length = cam_eval.data.lens
-    sensor_width = cam_eval.data.sensor_width
-
-    fx = focal_length * (width / sensor_width)
-    fy = focal_length * (height / sensor_width)
-    cx = width / 2.0
-    cy = height / 2.0
+    if cam_eval.data.type != "PERSP":
+        raise ValueError("The ray renderer requires a perspective camera")
+    projection = cam_eval.calc_matrix_camera(
+        depsgraph, x=width, y=height,
+        scale_x=scene.render.pixel_aspect_x, scale_y=scene.render.pixel_aspect_y,
+    )
+    fx = projection[0][0] * width / 2.0
+    fy = projection[1][1] * height / 2.0
+    # Intrinsics use the OpenCV convention: integer coordinates at pixel centers.
+    cx = width * (1.0 - projection[0][2]) / 2.0 - 0.5
+    cy = height * (1.0 + projection[1][2]) / 2.0 - 0.5
     with open(path, "w", encoding="utf-8") as f:
+        f.write("frame_stride_floats=24\nframe_time_unit=seconds\npixel_centers=integer\n")
         f.write(f"width={width}\n")
         f.write(f"height={height}\n")
         f.write(f"fps={fps}\n")
@@ -157,6 +162,5 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
 
     main()

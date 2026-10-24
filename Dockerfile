@@ -12,7 +12,6 @@ COPY . /workspace
 
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_PHYSIC_EFFECTS=ON \
-  -DENABLE_HIGH_PASS_FILTER=ON \
   -DENABLE_AER_DELAY=ON \
   && cmake --build build -j
 
